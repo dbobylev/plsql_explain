@@ -45,3 +45,15 @@ CREATE TABLE IF NOT EXISTS table_access (
     operation      TEXT NOT NULL,
     UNIQUE(schema_name, object_name, object_type, subprogram, table_name, operation)
 );
+
+CREATE TABLE IF NOT EXISTS summary (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    schema_name    TEXT NOT NULL,
+    object_name    TEXT NOT NULL,
+    object_type    TEXT NOT NULL,
+    subprogram     TEXT NOT NULL DEFAULT '',
+    source_hash    TEXT NOT NULL,
+    summary_text   TEXT NOT NULL,
+    summarized_at  TEXT NOT NULL,
+    UNIQUE(schema_name, object_name, object_type, subprogram)
+);

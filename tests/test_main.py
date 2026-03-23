@@ -44,3 +44,27 @@ def test_parse_command_with_object_and_force():
 def test_parse_command_missing_schema_raises():
     with pytest.raises(SystemExit):
         build_parser().parse_args(["parse"])
+
+
+def test_explain_parses_schema_and_object():
+    args = build_parser().parse_args(["explain", "--schema", "MYSCHEMA", "--object", "PKG_A"])
+    assert args.schema == "MYSCHEMA"
+    assert args.object == "PKG_A"
+    assert args.subprogram is None
+
+
+def test_explain_parses_subprogram():
+    args = build_parser().parse_args(
+        ["explain", "--schema", "S", "--object", "PKG_A", "--subprogram", "PROC_X"]
+    )
+    assert args.subprogram == "PROC_X"
+
+
+def test_explain_missing_schema_raises():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["explain", "--object", "PKG_A"])
+
+
+def test_explain_missing_object_raises():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["explain", "--schema", "S"])
