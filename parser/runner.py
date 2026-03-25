@@ -14,8 +14,23 @@ class ParserError(Exception):
 def _parser_path() -> str:
     return os.environ.get(
         "PLSQL_PARSER_PATH",
-        "./plsql_parser/bin/Release/net9.0/PlsqlParser",
+        "./plsql_parser/bin/Release/net8.0/PlsqlParser",
     )
+
+
+def _subprocess_env() -> dict:
+    """Return env for subprocess, injecting DOTNET_ROOT from common fallback locations
+    if not already set. Needed on machines where .NET is installed outside system PATH."""
+    env = os.environ.copy()
+    if "DOTNET_ROOT" not in env:
+        for candidate in [
+            os.path.expanduser("~/.dotnet"),
+            "/usr/local/share/dotnet",
+        ]:
+            if os.path.isdir(candidate):
+                env["DOTNET_ROOT"] = candidate
+                break
+    return env
 
 
 def parse_object(
@@ -48,6 +63,7 @@ def parse_object(
             text=True,
             encoding="utf-8",
             timeout=timeout,
+            env=_subprocess_env(),
         )
     except subprocess.TimeoutExpired as e:
         raise ParserError(
