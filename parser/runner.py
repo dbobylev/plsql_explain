@@ -4,7 +4,7 @@ import json
 import os
 import subprocess
 
-from parser.models import CallEdge, ParseOutput, TableAccess
+from parser.models import CallEdge, ParseOutput, SubprogramInfo, SubstatementInfo, TableAccess
 
 
 class ParserError(Exception):
@@ -110,5 +110,28 @@ def parse_object(
                 operation=acc["operation"],
             )
             for acc in data.get("table_accesses", [])
+        ],
+        subprograms=[
+            SubprogramInfo(
+                name=sp["name"],
+                subprogram_type=sp["subprogram_type"],
+                start_line=sp["start_line"],
+                end_line=sp["end_line"],
+                source_text=sp["source_text"],
+            )
+            for sp in data.get("subprograms", [])
+        ],
+        substatements=[
+            SubstatementInfo(
+                subprogram=s["subprogram"],
+                seq=s["seq"],
+                parent_seq=s["parent_seq"],
+                position=s["position"],
+                statement_type=s["statement_type"],
+                start_line=s["start_line"],
+                end_line=s["end_line"],
+                source_text=s["source_text"],
+            )
+            for s in data.get("substatements", [])
         ],
     )

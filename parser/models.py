@@ -21,6 +21,27 @@ class TableAccess:
 
 
 @dataclass
+class SubprogramInfo:
+    name: str
+    subprogram_type: str  # 'PROCEDURE' | 'FUNCTION'
+    start_line: int
+    end_line: int
+    source_text: str
+
+
+@dataclass
+class SubstatementInfo:
+    subprogram: Optional[str]  # None for package-level init block
+    seq: int
+    parent_seq: Optional[int]
+    position: int
+    statement_type: str
+    start_line: int
+    end_line: int
+    source_text: str
+
+
+@dataclass
 class ParseOutput:
     schema_name: str
     object_name: str
@@ -29,3 +50,5 @@ class ParseOutput:
     error_message: Optional[str]
     call_edges: list[CallEdge] = field(default_factory=list)
     table_accesses: list[TableAccess] = field(default_factory=list)
+    subprograms: list[SubprogramInfo] = field(default_factory=list)
+    substatements: list[SubstatementInfo] = field(default_factory=list)

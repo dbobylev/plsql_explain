@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
 
-from parser.models import CallEdge, TableAccess
+from parser.models import CallEdge, SubprogramInfo, SubstatementInfo, TableAccess
 
 
 def get_parse_hash(
@@ -93,5 +94,72 @@ def replace_table_accesses(
             (schema, name, obj_type, a.subprogram,
              a.table_schema, a.table_name, a.operation)
             for a in accesses
+        ],
+    )
+
+
+def replace_subprograms(
+    conn: sqlite3.Connection,
+    schema: str,
+    name: str,
+    obj_type: str,
+    subprograms: list[SubprogramInfo],
+) -> None:
+    """Deletes all existing subprogram rows for this object, then bulk-inserts new ones."""
+    conn.execute(
+        "DELETE FROM subprogram WHERE schema_name=? AND object_name=? AND object_type=?",
+        (schema, name, obj_type),
+    )
+    conn.executemany(
+        """
+        INSERT OR IGNORE INTO subprogram
+            (schema_name, object_name, object_type, subprogram_name, subprogram_type,
+             start_line, end_line, source_text, source_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                schema, name, obj_type,
+                sp.name, sp.subprogram_type,
+                sp.start_line, sp.end_line,
+                sp.source_text,
+                hashlib.sha256(sp.source_text.encode()).hexdigest(),
+            )
+            for sp in subprograms
+        ],
+    )
+
+
+def replace_substatements(
+    conn: sqlite3.Connection,
+    schema: str,
+    name: str,
+    obj_type: str,
+    substatements: list[SubstatementInfo],
+) -> None:
+    """Deletes all existing substatement rows for this object, then bulk-inserts new ones."""
+    conn.execute(
+        "DELETE FROM substatement WHERE schema_name=? AND object_name=? AND object_type=?",
+        (schema, name, obj_type),
+    )
+    conn.executemany(
+        """
+        INSERT OR IGNORE INTO substatement
+            (schema_name, object_name, object_type, subprogram,
+             seq, parent_seq, position, statement_type,
+             start_line, end_line, source_text, source_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                schema, name, obj_type,
+                s.subprogram if s.subprogram is not None else "",
+                s.seq, s.parent_seq, s.position,
+                s.statement_type,
+                s.start_line, s.end_line,
+                s.source_text,
+                hashlib.sha256(s.source_text.encode()).hexdigest(),
+            )
+            for s in substatements
         ],
     )

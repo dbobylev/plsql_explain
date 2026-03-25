@@ -33,6 +33,51 @@ public class TableAccess
     public string Operation { get; set; } = string.Empty;
 }
 
+public class SubprogramInfo
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("subprogram_type")]
+    public string SubprogramType { get; set; } = string.Empty;
+
+    [JsonPropertyName("start_line")]
+    public int StartLine { get; set; }
+
+    [JsonPropertyName("end_line")]
+    public int EndLine { get; set; }
+
+    [JsonPropertyName("source_text")]
+    public string SourceText { get; set; } = string.Empty;
+}
+
+public class SubstatementInfo
+{
+    [JsonPropertyName("subprogram")]
+    public string? Subprogram { get; set; }
+
+    [JsonPropertyName("seq")]
+    public int Seq { get; set; }
+
+    [JsonPropertyName("parent_seq")]
+    public int? ParentSeq { get; set; }
+
+    [JsonPropertyName("position")]
+    public int Position { get; set; }
+
+    [JsonPropertyName("statement_type")]
+    public string StatementType { get; set; } = string.Empty;
+
+    [JsonPropertyName("start_line")]
+    public int StartLine { get; set; }
+
+    [JsonPropertyName("end_line")]
+    public int EndLine { get; set; }
+
+    [JsonPropertyName("source_text")]
+    public string SourceText { get; set; } = string.Empty;
+}
+
 public class ParseInput
 {
     [JsonPropertyName("schema_name")]
@@ -70,4 +115,10 @@ public class ParseOutput
 
     [JsonPropertyName("table_accesses")]
     public List<TableAccess> TableAccesses { get; set; } = new();
+
+    [JsonPropertyName("subprograms")]
+    public List<SubprogramInfo> Subprograms { get; set; } = new();
+
+    [JsonPropertyName("substatements")]
+    public List<SubstatementInfo> Substatements { get; set; } = new();
 }

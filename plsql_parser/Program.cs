@@ -57,12 +57,14 @@ try
         return;
     }
 
-    var visitor = new PlsqlVisitor(input.SchemaName, input.ObjectName, input.ObjectType);
+    var visitor = new PlsqlVisitor(input.SchemaName, input.ObjectName, input.ObjectType, input.SourceText);
     visitor.Visit(tree);
 
     output.Status = "ok";
     output.CallEdges = visitor.CallEdges;
     output.TableAccesses = visitor.TableAccesses;
+    output.Subprograms = visitor.Subprograms;
+    output.Substatements = visitor.Substatements;
 }
 catch (Exception ex)
 {

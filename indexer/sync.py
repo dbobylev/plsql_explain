@@ -52,6 +52,8 @@ def run(
             with conn:
                 indexer_store.replace_call_edges(conn, schema_name, name, obj_type, output.call_edges)
                 indexer_store.replace_table_accesses(conn, schema_name, name, obj_type, output.table_accesses)
+                indexer_store.replace_subprograms(conn, schema_name, name, obj_type, output.subprograms)
+                indexer_store.replace_substatements(conn, schema_name, name, obj_type, output.substatements)
                 indexer_store.upsert_parse_result(
                     conn, schema_name, name, obj_type, current_hash, output.status, output.error_message
                 )

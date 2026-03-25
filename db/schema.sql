@@ -46,6 +46,37 @@ CREATE TABLE IF NOT EXISTS table_access (
     UNIQUE(schema_name, object_name, object_type, subprogram, table_name, operation)
 );
 
+CREATE TABLE IF NOT EXISTS subprogram (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    schema_name     TEXT NOT NULL,
+    object_name     TEXT NOT NULL,
+    object_type     TEXT NOT NULL,
+    subprogram_name TEXT NOT NULL,
+    subprogram_type TEXT NOT NULL,
+    start_line      INTEGER NOT NULL,
+    end_line        INTEGER NOT NULL,
+    source_text     TEXT NOT NULL,
+    source_hash     TEXT NOT NULL,
+    UNIQUE(schema_name, object_name, object_type, subprogram_name)
+);
+
+CREATE TABLE IF NOT EXISTS substatement (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    schema_name    TEXT NOT NULL,
+    object_name    TEXT NOT NULL,
+    object_type    TEXT NOT NULL,
+    subprogram     TEXT NOT NULL DEFAULT '',
+    seq            INTEGER NOT NULL,
+    parent_seq     INTEGER,
+    position       INTEGER NOT NULL,
+    statement_type TEXT NOT NULL,
+    start_line     INTEGER NOT NULL,
+    end_line       INTEGER NOT NULL,
+    source_text    TEXT NOT NULL,
+    source_hash    TEXT NOT NULL,
+    UNIQUE(schema_name, object_name, object_type, subprogram, seq)
+);
+
 CREATE TABLE IF NOT EXISTS summary (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     schema_name    TEXT NOT NULL,
