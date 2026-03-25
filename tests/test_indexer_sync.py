@@ -3,7 +3,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 import indexer.sync as sync
-from parser.models import CallEdge, ParseOutput, TableAccess
+from parser.models import CallEdge, ParseOutput, SubprogramInfo, SubstatementInfo, TableAccess
 
 
 def _hash(text: str) -> str:
@@ -116,6 +116,41 @@ def test_summary_output_contains_counts(mem_conn, capsys):
     run_sync(mem_conn)
     captured = capsys.readouterr()
     assert "1" in captured.out
+
+
+def test_sync_stores_subprograms_and_substatements(mem_conn):
+    _seed_object(mem_conn, "PKG_A")
+    output = ParseOutput(
+        schema_name="S", object_name="PKG_A", object_type="PACKAGE BODY",
+        status="ok", error_message=None,
+        call_edges=[],
+        table_accesses=[],
+        subprograms=[
+            SubprogramInfo(name="PROC1", subprogram_type="PROCEDURE",
+                           start_line=2, end_line=8, source_text="PROCEDURE PROC1 IS BEGIN NULL; END;"),
+        ],
+        substatements=[
+            SubstatementInfo(subprogram="PROC1", seq=0, parent_seq=None, position=0,
+                             statement_type="SQL_SELECT", start_line=4, end_line=4,
+                             source_text="SELECT 1 FROM dual"),
+            SubstatementInfo(subprogram="PROC1", seq=1, parent_seq=None, position=1,
+                             statement_type="IF", start_line=5, end_line=7,
+                             source_text="IF TRUE THEN NULL; END IF;"),
+        ],
+    )
+    run_sync(mem_conn, parse_output=output)
+
+    sp_count = mem_conn.execute("SELECT COUNT(*) FROM subprogram").fetchone()[0]
+    assert sp_count == 1
+
+    st_count = mem_conn.execute("SELECT COUNT(*) FROM substatement").fetchone()[0]
+    assert st_count == 2
+
+    row = mem_conn.execute("SELECT subprogram_name FROM subprogram").fetchone()
+    assert row["subprogram_name"] == "PROC1"
+
+    types = {r["statement_type"] for r in mem_conn.execute("SELECT statement_type FROM substatement")}
+    assert types == {"SQL_SELECT", "IF"}
 
 
 def test_object_name_filter(mem_conn):

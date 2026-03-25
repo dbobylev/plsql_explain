@@ -4,6 +4,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from parser.runner import parse_object, ParserError
+from parser.models import SubprogramInfo, SubstatementInfo
 
 
 def _make_result(payload: dict, returncode: int = 0) -> MagicMock:
@@ -99,3 +100,83 @@ def test_invalid_json_raises_parser_error():
     with patch("subprocess.run", return_value=r):
         with pytest.raises(ParserError, match="invalid JSON"):
             parse_object("S", "PKG_X", "PACKAGE BODY", "src")
+
+
+# ---------------------------------------------------------------------------
+# subprograms / substatements deserialization
+# ---------------------------------------------------------------------------
+
+SUBPROGRAMS_PAYLOAD = {
+    "schema_name": "S", "object_name": "PKG_A", "object_type": "PACKAGE BODY",
+    "status": "ok", "error_message": None,
+    "call_edges": [], "table_accesses": [],
+    "subprograms": [
+        {
+            "name": "PROC1", "subprogram_type": "PROCEDURE",
+            "start_line": 2, "end_line": 10,
+            "source_text": "PROCEDURE PROC1 IS\nBEGIN\n  NULL;\nEND PROC1;",
+        }
+    ],
+    "substatements": [
+        {
+            "subprogram": "PROC1", "seq": 0, "parent_seq": None, "position": 0,
+            "statement_type": "SQL_SELECT", "start_line": 5, "end_line": 5,
+            "source_text": "SELECT 1 FROM dual",
+        },
+        {
+            "subprogram": "PROC1", "seq": 1, "parent_seq": None, "position": 1,
+            "statement_type": "IF", "start_line": 6, "end_line": 9,
+            "source_text": "IF v_x > 0 THEN NULL; END IF;",
+        },
+        {
+            "subprogram": "PROC1", "seq": 2, "parent_seq": 1, "position": 0,
+            "statement_type": "IF_THEN", "start_line": 7, "end_line": 7,
+            "source_text": "NULL",
+        },
+    ],
+}
+
+
+def test_parse_ok_returns_subprograms():
+    with patch("subprocess.run", return_value=_make_result(SUBPROGRAMS_PAYLOAD)):
+        out = parse_object("S", "PKG_A", "PACKAGE BODY", "source")
+
+    assert len(out.subprograms) == 1
+    sp = out.subprograms[0]
+    assert sp.name == "PROC1"
+    assert sp.subprogram_type == "PROCEDURE"
+    assert sp.start_line == 2
+    assert sp.end_line == 10
+    assert "PROC1" in sp.source_text
+
+
+def test_parse_ok_returns_substatements():
+    with patch("subprocess.run", return_value=_make_result(SUBPROGRAMS_PAYLOAD)):
+        out = parse_object("S", "PKG_A", "PACKAGE BODY", "source")
+
+    assert len(out.substatements) == 3
+
+    sql_stmt = out.substatements[0]
+    assert sql_stmt.statement_type == "SQL_SELECT"
+    assert sql_stmt.seq == 0
+    assert sql_stmt.parent_seq is None
+    assert sql_stmt.subprogram == "PROC1"
+
+    if_stmt = out.substatements[1]
+    assert if_stmt.statement_type == "IF"
+    assert if_stmt.seq == 1
+    assert if_stmt.parent_seq is None
+
+    if_then = out.substatements[2]
+    assert if_then.statement_type == "IF_THEN"
+    assert if_then.seq == 2
+    assert if_then.parent_seq == 1
+
+
+def test_parse_payload_without_subprograms_returns_empty_lists():
+    """Legacy payloads without subprograms/substatements keys → empty lists."""
+    with patch("subprocess.run", return_value=_make_result(OK_PAYLOAD)):
+        out = parse_object("S", "PKG_A", "PACKAGE BODY", "source")
+
+    assert out.subprograms == []
+    assert out.substatements == []

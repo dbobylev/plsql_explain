@@ -133,3 +133,112 @@ def test_keep_with_over_clause_no_parse_errors():
     out = parse_object("S", "TEST_PKG", "PACKAGE BODY", _PKG_KEEP_OVER)
 
     assert out.status == "ok", f"Expected ok, got {out.status!r}: {out.error_message}"
+
+
+# ---------------------------------------------------------------------------
+# Subprogram / substatement extraction
+# ---------------------------------------------------------------------------
+
+_PKG_WITH_IF_LOOP = """\
+CREATE OR REPLACE PACKAGE BODY TEST_PKG AS
+
+  PROCEDURE PROCESS(p_id IN NUMBER) IS
+    v_x NUMBER;
+  BEGIN
+    SELECT col1 INTO v_x FROM orders WHERE id = p_id;
+    IF v_x > 0 THEN
+      UPDATE orders SET status = 'A' WHERE id = p_id;
+    ELSIF v_x = 0 THEN
+      DELETE FROM orders WHERE id = p_id;
+    ELSE
+      INSERT INTO audit_log(order_id) VALUES (p_id);
+    END IF;
+    FOR i IN 1..3 LOOP
+      UPDATE counters SET n = n + 1 WHERE id = i;
+    END LOOP;
+  EXCEPTION
+    WHEN OTHERS THEN
+      INSERT INTO error_log(order_id, msg) VALUES (p_id, SQLERRM);
+  END PROCESS;
+
+  FUNCTION GET_COUNT(p_id IN NUMBER) RETURN NUMBER IS
+    v_n NUMBER;
+  BEGIN
+    SELECT COUNT(*) INTO v_n FROM orders WHERE id = p_id;
+    RETURN v_n;
+  END GET_COUNT;
+
+END TEST_PKG;
+"""
+
+
+@requires_binary
+def test_subprogram_extraction_returns_both_subprograms():
+    out = parse_object("S", "TEST_PKG", "PACKAGE BODY", _PKG_WITH_IF_LOOP)
+
+    assert out.status == "ok"
+    names = {sp.name for sp in out.subprograms}
+    assert names == {"PROCESS", "GET_COUNT"}
+
+
+@requires_binary
+def test_subprogram_source_text_contains_procedure_name():
+    out = parse_object("S", "TEST_PKG", "PACKAGE BODY", _PKG_WITH_IF_LOOP)
+
+    proc = next(sp for sp in out.subprograms if sp.name == "PROCESS")
+    assert "PROCESS" in proc.source_text
+    assert proc.start_line < proc.end_line
+
+
+@requires_binary
+def test_substatements_include_expected_types():
+    out = parse_object("S", "TEST_PKG", "PACKAGE BODY", _PKG_WITH_IF_LOOP)
+
+    types = {s.statement_type for s in out.substatements}
+    assert "SQL_SELECT" in types
+    assert "IF" in types
+    assert "IF_THEN" in types
+    assert "IF_ELSIF" in types
+    assert "IF_ELSE" in types
+    assert "LOOP_FOR" in types
+    assert "EXCEPTION_HANDLER" in types
+    assert "DECLARE" in types
+
+
+@requires_binary
+def test_substatements_parent_child_tree_is_consistent():
+    """Every substatement with a parent_seq must have a parent with that seq value."""
+    out = parse_object("S", "TEST_PKG", "PACKAGE BODY", _PKG_WITH_IF_LOOP)
+
+    by_key = {(s.subprogram, s.seq): s for s in out.substatements}
+    for s in out.substatements:
+        if s.parent_seq is not None:
+            assert (s.subprogram, s.parent_seq) in by_key, (
+                f"substatement seq={s.seq} type={s.statement_type} "
+                f"has parent_seq={s.parent_seq} but no parent found"
+            )
+
+
+@requires_binary
+def test_substatements_scoped_to_correct_subprogram():
+    out = parse_object("S", "TEST_PKG", "PACKAGE BODY", _PKG_WITH_IF_LOOP)
+
+    process_stmts = [s for s in out.substatements if s.subprogram == "PROCESS"]
+    get_count_stmts = [s for s in out.substatements if s.subprogram == "GET_COUNT"]
+    assert len(process_stmts) > 0
+    assert len(get_count_stmts) > 0
+
+    process_types = {s.statement_type for s in process_stmts}
+    get_count_types = {s.statement_type for s in get_count_stmts}
+    # IF/LOOP only in PROCESS; SELECT in both
+    assert "IF" in process_types
+    assert "LOOP_FOR" in process_types
+    assert "IF" not in get_count_types
+
+
+@requires_binary
+def test_substatements_source_text_is_nonempty():
+    out = parse_object("S", "TEST_PKG", "PACKAGE BODY", _PKG_WITH_IF_LOOP)
+
+    for s in out.substatements:
+        assert s.source_text.strip(), f"Empty source_text for seq={s.seq} type={s.statement_type}"
