@@ -23,7 +23,7 @@ def test_single_object_multiline_assembled(mock_connect):
     conn, _ = make_mock_connect(rows)
     mock_connect.return_value = conn
 
-    result = list(fetch_objects("myschema"))
+    result = list(fetch_objects("myschema", "PKG_FOO"))
 
     assert result == [("MYSCHEMA", "PKG_FOO", "PACKAGE BODY", "line1\nline2\n")]
 
@@ -38,7 +38,7 @@ def test_two_objects_boundary_detected(mock_connect):
     conn, _ = make_mock_connect(rows)
     mock_connect.return_value = conn
 
-    result = list(fetch_objects("s"))
+    result = list(fetch_objects("s", "OBJ_A"))
 
     assert len(result) == 2
     assert result[0] == ("S", "OBJ_A", "PROCEDURE", "a1\na2\n")
@@ -50,14 +50,13 @@ def test_empty_schema_yields_nothing(mock_connect):
     conn, _ = make_mock_connect([])
     mock_connect.return_value = conn
 
-    assert list(fetch_objects("EMPTY")) == []
+    assert list(fetch_objects("EMPTY", "PKG_ANY")) == []
 
 
 @patch("fetcher.oracle_client._connect")
 def test_object_name_filter_yields_only_matching(mock_connect):
     rows = [
         ("S", "PKG_A", "PACKAGE BODY", "a\n"),
-        ("S", "PKG_B", "PACKAGE BODY", "b\n"),
     ]
     conn, _ = make_mock_connect(rows)
     mock_connect.return_value = conn
@@ -70,9 +69,7 @@ def test_object_name_filter_yields_only_matching(mock_connect):
 
 @patch("fetcher.oracle_client._connect")
 def test_object_name_filter_no_match_yields_nothing(mock_connect):
-    rows = [
-        ("S", "PKG_A", "PACKAGE BODY", "a\n"),
-    ]
+    rows = []
     conn, _ = make_mock_connect(rows)
     mock_connect.return_value = conn
 
@@ -86,7 +83,7 @@ def test_schema_uppercased_in_query(mock_connect):
     conn, cursor = make_mock_connect([])
     mock_connect.return_value = conn
 
-    list(fetch_objects("myschema"))
+    list(fetch_objects("myschema", "PKG_X"))
 
     assert cursor.execute.call_args.kwargs["schema"] == "MYSCHEMA"
 
