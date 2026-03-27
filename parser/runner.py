@@ -24,8 +24,10 @@ def _subprocess_env() -> dict:
     env = os.environ.copy()
     if "DOTNET_ROOT" not in env:
         for candidate in [
-            os.path.expanduser("~/.dotnet"),
             "/usr/local/share/dotnet",
+            r"C:\Program Files\dotnet",
+            r"C:\Program Files (x86)\dotnet",
+            os.path.expanduser("~/.dotnet"),
         ]:
             if os.path.isdir(candidate):
                 env["DOTNET_ROOT"] = candidate
