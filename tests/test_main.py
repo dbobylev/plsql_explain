@@ -68,3 +68,45 @@ def test_explain_missing_schema_raises():
 def test_explain_missing_object_raises():
     with pytest.raises(SystemExit):
         build_parser().parse_args(["explain", "--schema", "S"])
+
+
+def test_debug_defaults():
+    args = build_parser().parse_args(["debug"])
+    assert args.schema == "DEBUG"
+    assert args.object == "ANONYMOUS"
+    assert args.object_type == "PACKAGE BODY"
+    assert args.source_file is None
+    assert args.source is None
+    assert args.output_json is False
+
+
+def test_debug_schema_override():
+    args = build_parser().parse_args(["debug", "--schema", "MYSCHEMA"])
+    assert args.schema == "MYSCHEMA"
+
+
+def test_debug_source_file():
+    args = build_parser().parse_args(["debug", "--source-file", "foo.sql"])
+    assert args.source_file == "foo.sql"
+    assert args.source is None
+
+
+def test_debug_inline_source():
+    args = build_parser().parse_args(["debug", "--source", "BEGIN NULL; END;"])
+    assert args.source == "BEGIN NULL; END;"
+    assert args.source_file is None
+
+
+def test_debug_type_override():
+    args = build_parser().parse_args(["debug", "--type", "PROCEDURE"])
+    assert args.object_type == "PROCEDURE"
+
+
+def test_debug_json_flag():
+    args = build_parser().parse_args(["debug", "--json"])
+    assert args.output_json is True
+
+
+def test_debug_source_and_source_file_mutually_exclusive():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["debug", "--source", "x", "--source-file", "f.sql"])
