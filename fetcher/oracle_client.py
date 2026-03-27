@@ -47,11 +47,17 @@ def fetch_objects(
 
                 if key != current_key:
                     if current_key is not None:
-                        yield (*current_key, "".join(lines))
+                        source = "".join(lines)
+                        if not source.lstrip().upper().startswith("CREATE"):
+                            source = "CREATE OR REPLACE " + source
+                        yield (*current_key, source)
                     current_key = key
                     lines = []
 
                 lines.append(line_text or "")
 
             if current_key is not None and lines:
-                yield (*current_key, "".join(lines))
+                source = "".join(lines)
+                if not source.lstrip().upper().startswith("CREATE"):
+                    source = "CREATE OR REPLACE " + source
+                yield (*current_key, source)
