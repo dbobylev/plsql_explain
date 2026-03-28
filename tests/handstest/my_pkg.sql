@@ -29,6 +29,10 @@ create or replace package body myschema.mypackage as
                 vres := 200;
 
             end loop;
+
+            for i in 1 .. xx.count loop
+                dbms_output.put_line('xxx');
+            end loop;
             
             vRes := null;
         exception

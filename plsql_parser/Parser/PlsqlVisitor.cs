@@ -198,8 +198,25 @@ public class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
 
         foreach (var handler in body.exception_handler())
         {
-            AddSubstatement(subprogram, parentSeq, ref pos, GetSourceText(handler),
-                "EXCEPTION_HANDLER", handler.Start.Line, handler.Stop?.Line ?? handler.Start.Line,
+            var handlerThenToken = handler.THEN();
+            string handlerHeaderText;
+            int handlerHeaderEndLine;
+            if (handlerThenToken != null)
+            {
+                int start = handler.Start.StartIndex;
+                int end = handlerThenToken.Symbol.StopIndex;
+                handlerHeaderText = (start >= 0 && end >= start && end < _sourceText.Length)
+                    ? _sourceText.Substring(start, end - start + 1)
+                    : GetSourceText(handler);
+                handlerHeaderEndLine = handlerThenToken.Symbol.Line;
+            }
+            else
+            {
+                handlerHeaderText = GetSourceText(handler);
+                handlerHeaderEndLine = handler.Stop?.Line ?? handler.Start.Line;
+            }
+            AddSubstatement(subprogram, parentSeq, ref pos, handlerHeaderText,
+                "EXCEPTION_HANDLER", handler.Start.Line, handlerHeaderEndLine,
                 out int handlerSeq);
             var handlerStmts = handler.seq_of_statements();
             if (handlerStmts != null)
@@ -340,16 +357,7 @@ public class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
             AddSubstatement(subprogram, parentSeq, ref position, headerText,
                 loopType, loopStmt.Start.Line, headerEndLine, out int loopSeq);
 
-            // Children: SELECT from cursor param (LOOP_FOR) + body statements share one position counter
             int childPos = 0;
-            if (loopType == "LOOP_FOR")
-            {
-                var selectStmt = loopStmt.cursor_loop_param()?.select_statement();
-                if (selectStmt != null)
-                    AddSubstatement(subprogram, loopSeq, ref childPos, GetSourceText(selectStmt),
-                        "SQL_SELECT", selectStmt.Start.Line, selectStmt.Stop?.Line ?? selectStmt.Start.Line, out _);
-            }
-
             var loopBody = loopStmt.seq_of_statements();
             if (loopBody != null)
                 foreach (var stmt in loopBody.statement())
