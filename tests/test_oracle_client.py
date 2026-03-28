@@ -25,7 +25,7 @@ def test_single_object_multiline_assembled(mock_connect):
 
     result = list(fetch_objects("myschema", "PKG_FOO"))
 
-    assert result == [("MYSCHEMA", "PKG_FOO", "PACKAGE BODY", "line1\nline2\n")]
+    assert result == [("MYSCHEMA", "PKG_FOO", "PACKAGE BODY", "CREATE OR REPLACE line1\nline2\n")]
 
 
 @patch("fetcher.oracle_client._connect")
@@ -41,8 +41,8 @@ def test_two_objects_boundary_detected(mock_connect):
     result = list(fetch_objects("s", "OBJ_A"))
 
     assert len(result) == 2
-    assert result[0] == ("S", "OBJ_A", "PROCEDURE", "a1\na2\n")
-    assert result[1] == ("S", "OBJ_B", "FUNCTION", "b1\n")
+    assert result[0] == ("S", "OBJ_A", "PROCEDURE", "CREATE OR REPLACE a1\na2\n")
+    assert result[1] == ("S", "OBJ_B", "FUNCTION", "CREATE OR REPLACE b1\n")
 
 
 @patch("fetcher.oracle_client._connect")
