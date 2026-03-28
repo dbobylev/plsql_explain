@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 
 from parser.models import CallEdge, ParseOutput, SubprogramInfo, SubstatementInfo, TableAccess
 
@@ -23,12 +24,19 @@ def _subprocess_env() -> dict:
     if not already set. Needed on machines where .NET is installed outside system PATH."""
     env = os.environ.copy()
     if "DOTNET_ROOT" not in env:
-        for candidate in [
-            "/usr/local/share/dotnet",
-            r"C:\Program Files\dotnet",
-            r"C:\Program Files (x86)\dotnet",
-            os.path.expanduser("~/.dotnet"),
-        ]:
+        if sys.platform == "win32":
+            candidates = [
+                r"C:\Program Files\dotnet",
+                r"C:\Program Files (x86)\dotnet",
+                os.path.expanduser(r"~\.dotnet"),
+            ]
+        else:
+            candidates = [
+                os.path.expanduser("~/.dotnet"),
+                "/usr/local/share/dotnet",
+                "/usr/share/dotnet"
+            ]
+        for candidate in candidates:
             if os.path.isdir(candidate):
                 env["DOTNET_ROOT"] = candidate
                 break

@@ -35,6 +35,8 @@ create or replace package body myschema.mypackage as
             when no_data_found then
             package3.log('error while call test_procedure, pName: ' || pName);
             raise;
+            when others then
+            raise;
         end;
 
     end;

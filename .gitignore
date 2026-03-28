@@ -146,3 +146,4 @@ TestResult.xml
 # IDE
 .idea/
 .vscode/
+my_pkg_report.*

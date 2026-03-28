@@ -130,7 +130,8 @@ python main.py debug --source-file my_pkg.sql --json
 # Сохранить результат в файл — надёжный способ без проблем с кодировкой на Windows
 python main.py debug --source-file my_pkg.sql --output my_pkg_report.txt
 python main.py debug --source-file my_pkg.sql --json --output my_pkg_parse.json
-python main.py debug --source-file .\tests\debug\my_pkg.sql --output .\tests\debug\my_pkg_report.txt
+python main.py debug --source-file .\tests\handstest\my_pkg.sql --output .\tests\handstest\my_pkg_report.txt
+python3 main.py debug --source-file ./tests/handstest/my_pkg.sql --output ./tests/handstest/my_pkg_report.txt
 ```
 
 ### Шаг 3 — Посмотреть дерево зависимостей (без LLM)
