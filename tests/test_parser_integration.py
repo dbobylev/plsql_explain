@@ -192,6 +192,20 @@ CREATE OR REPLACE PACKAGE BODY MYSCHEMA.MYPACKAGE AS
 END MYPACKAGE;
 """
 
+_PKG_DUPLICATE_CALLEE_NAMES_ACROSS_SCHEMAS = """\
+CREATE OR REPLACE PACKAGE BODY TEST_PKG AS
+
+  PROCEDURE PROCESS IS
+    v_res NUMBER;
+  BEGIN
+    schema_a.shared_pkg.do_work(1);
+    schema_b.shared_pkg.do_work(2);
+    v_res := schema_c.calc_pkg.get_value(3);
+  END PROCESS;
+
+END TEST_PKG;
+"""
+
 
 @requires_binary
 def test_subprogram_extraction_returns_both_subprograms():
@@ -303,3 +317,40 @@ def test_declare_block_stops_before_begin_even_with_nested_block():
         and child.start_line == 13
         for child in top_children
     )
+
+
+@requires_binary
+def test_handstest_external_calls_preserve_callee_schema():
+    handstest_source = (Path(__file__).parent / "handstest" / "my_pkg.sql").read_text(encoding="utf-8")
+
+    out = parse_object("MYSCHEMA", "MYPACKAGE", "PACKAGE BODY", handstest_source)
+
+    assert out.status == "ok", f"Expected ok, got {out.status!r}: {out.error_message}"
+
+    edges = {
+        (edge.callee_schema, edge.callee_object, edge.callee_subprogram)
+        for edge in out.call_edges
+    }
+
+    assert (None, "PACKAGE4", "PROC2") in edges
+    assert ("MYSCHEMAX", "PACKAGE22", "PROC2") in edges
+    assert ("MYSCHEMA2", "PACKAGE2", "PROC3") in edges
+    assert ("MYSCHEMA3", "PACKAGE4", "PROC4") in edges
+    assert (None, "PACKAGE3", "LOG") in edges
+
+
+@requires_binary
+def test_same_package_subprogram_called_from_different_schemas_are_not_deduplicated():
+    out = parse_object("LOCAL_SCHEMA", "TEST_PKG", "PACKAGE BODY", _PKG_DUPLICATE_CALLEE_NAMES_ACROSS_SCHEMAS)
+
+    assert out.status == "ok", f"Expected ok, got {out.status!r}: {out.error_message}"
+
+    edges = {
+        (edge.callee_schema, edge.callee_object, edge.callee_subprogram)
+        for edge in out.call_edges
+    }
+
+    assert ("SCHEMA_A", "SHARED_PKG", "DO_WORK") in edges
+    assert ("SCHEMA_B", "SHARED_PKG", "DO_WORK") in edges
+    assert ("SCHEMA_C", "CALC_PKG", "GET_VALUE") in edges
+    assert len(edges) == 3

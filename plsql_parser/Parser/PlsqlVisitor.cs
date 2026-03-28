@@ -874,32 +874,22 @@ public class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
 
     private void ExtractCallFromRoutineName(PlSqlParser.Routine_nameContext rn)
     {
+        var parts = new List<string>();
+
         var ident = rn.identifier()?.GetText()?.ToUpperInvariant();
-        var idExprs = rn.id_expression();
+        if (!string.IsNullOrEmpty(ident))
+            parts.Add(ident);
 
-        string calleeObject;
-        string? calleeSubprogram = null;
-
-        if (idExprs.Length == 0)
+        foreach (var idExpr in rn.id_expression())
         {
-            // bare call: PROC(...)
-            calleeObject = ident ?? string.Empty;
-        }
-        else if (idExprs.Length == 1)
-        {
-            // PKG.PROC(...)
-            calleeObject = ident ?? string.Empty;
-            calleeSubprogram = idExprs[0].GetText().ToUpperInvariant();
-        }
-        else
-        {
-            // SCHEMA.PKG.PROC(...) — skip schema, take last two parts
-            calleeObject = idExprs[^2].GetText().ToUpperInvariant();
-            calleeSubprogram = idExprs[^1].GetText().ToUpperInvariant();
+            var part = idExpr.GetText().ToUpperInvariant();
+            if (!string.IsNullOrEmpty(part))
+                parts.Add(part);
         }
 
+        var (calleeSchema, calleeObject, calleeSubprogram) = ResolveCallTarget(parts);
         if (!string.IsNullOrEmpty(calleeObject) && !BuiltinPackages.Contains(calleeObject))
-            AddEdge(calleeObject, calleeSubprogram);
+            AddEdge(calleeSchema, calleeObject, calleeSubprogram);
     }
 
     // Inline function call in expression: PKG.FUNC(args) or FUNC(args)
@@ -910,35 +900,56 @@ public class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
         // (to avoid double-counting on recursive general_element)
         if (parts.Length > 0 && parts[^1].function_argument().Length > 0)
         {
-            string calleeObject;
-            string? calleeSubprogram = null;
+            var nameParts = new List<string>();
+            CollectGeneralElementNameParts(ctx, nameParts);
 
-            if (parts.Length == 1)
-            {
-                calleeObject = parts[0].id_expression()?.GetText()?.ToUpperInvariant() ?? string.Empty;
-            }
-            else
-            {
-                // Take second-to-last as object, last as subprogram (handles schema.pkg.proc)
-                calleeObject = parts[^2].id_expression()?.GetText()?.ToUpperInvariant() ?? string.Empty;
-                calleeSubprogram = parts[^1].id_expression()?.GetText()?.ToUpperInvariant();
-            }
-
+            var (calleeSchema, calleeObject, calleeSubprogram) = ResolveCallTarget(nameParts);
             if (!string.IsNullOrEmpty(calleeObject) && !BuiltinPackages.Contains(calleeObject))
-                AddEdge(calleeObject, calleeSubprogram);
+                AddEdge(calleeSchema, calleeObject, calleeSubprogram);
         }
         return base.VisitGeneral_element(ctx);
     }
 
-    private void AddEdge(string calleeObject, string? calleeSubprogram)
+    private static void CollectGeneralElementNameParts(
+        PlSqlParser.General_elementContext ctx,
+        List<string> nameParts)
     {
-        var key = $"{CurrentSubprogram}|{calleeObject}|{calleeSubprogram}";
+        var parent = ctx.general_element();
+        if (parent != null)
+            CollectGeneralElementNameParts(parent, nameParts);
+
+        foreach (var part in ctx.general_element_part())
+        {
+            var name = part.id_expression()?.GetText()?.ToUpperInvariant();
+            if (!string.IsNullOrEmpty(name))
+                nameParts.Add(name);
+        }
+    }
+
+    private static (string? CalleeSchema, string CalleeObject, string? CalleeSubprogram) ResolveCallTarget(
+        IReadOnlyList<string> parts)
+    {
+        if (parts.Count == 0)
+            return (null, string.Empty, null);
+
+        if (parts.Count == 1)
+            return (null, parts[0], null);
+
+        if (parts.Count == 2)
+            return (null, parts[0], parts[1]);
+
+        return (parts[^3], parts[^2], parts[^1]);
+    }
+
+    private void AddEdge(string? calleeSchema, string calleeObject, string? calleeSubprogram)
+    {
+        var key = $"{CurrentSubprogram}|{calleeSchema}|{calleeObject}|{calleeSubprogram}";
         if (!_edgeKeys.Add(key)) return;
 
         CallEdges.Add(new CallEdge
         {
             CallerSubprogram = CurrentSubprogram,
-            CalleeSchema = null,
+            CalleeSchema = calleeSchema,
             CalleeObject = calleeObject,
             CalleeSubprogram = calleeSubprogram,
         });
