@@ -7,9 +7,9 @@ create or replace package body myschema.mypackage as
         vUpdated date;
     begin
 
-        --package4.proc2(pName, pVAl);
+        package4.proc2(pName, pVAl);
         vRes := myschema.package2.proc2(pName, pVAl);
-        
+        select 1 into vRes from dual;
 
         begin
             for i in (
@@ -37,7 +37,7 @@ create or replace package body myschema.mypackage as
                 dbms_output.put_line('xxx');
             end loop;
 
-            select 1 into vRes from dual;
+            
             
             begin
               vRes := null;
@@ -50,3 +50,4 @@ create or replace package body myschema.mypackage as
             raise;
         end;
     end;
+end;

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Antlr4.Runtime;
 using Antlr4.Runtime.Misc;
+using Antlr4.Runtime.Tree;
 using PlsqlParser.Grammar;
 using PlsqlParser.Model;
 
@@ -109,7 +110,7 @@ public class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
 
         RecordSubprogram(ctx, name, "PROCEDURE");
         var result = base.VisitProcedure_body(ctx);
-        ExtractSubprogramContent(ctx.seq_of_declare_specs(), ctx.body(), name);
+        ExtractSubprogramContent(ctx, ctx.IS(), ctx.AS(), ctx.seq_of_declare_specs(), ctx.body(), name);
 
         _subprogramStack.Pop();
         return result;
@@ -122,7 +123,7 @@ public class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
 
         RecordSubprogram(ctx, name, "FUNCTION");
         var result = base.VisitFunction_body(ctx);
-        ExtractSubprogramContent(ctx.seq_of_declare_specs(), ctx.body(), name);
+        ExtractSubprogramContent(ctx, ctx.IS(), ctx.AS(), ctx.seq_of_declare_specs(), ctx.body(), name);
 
         _subprogramStack.Pop();
         return result;
@@ -134,7 +135,7 @@ public class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
     {
         RecordSubprogram(ctx, _callerObject, "PROCEDURE");
         var result = base.VisitCreate_procedure_body(ctx);
-        ExtractSubprogramContent(ctx.seq_of_declare_specs(), ctx.body(), null);
+        ExtractSubprogramContent(ctx, ctx.IS(), ctx.AS(), ctx.seq_of_declare_specs(), ctx.body(), null);
         return result;
     }
 
@@ -142,7 +143,7 @@ public class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
     {
         RecordSubprogram(ctx, _callerObject, "FUNCTION");
         var result = base.VisitCreate_function_body(ctx);
-        ExtractSubprogramContent(ctx.seq_of_declare_specs(), ctx.body(), null);
+        ExtractSubprogramContent(ctx, ctx.IS(), ctx.AS(), ctx.seq_of_declare_specs(), ctx.body(), null);
         return result;
     }
 
@@ -166,49 +167,381 @@ public class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
     /// All are top-level children (parentSeq = null) with sequential positions.
     /// </summary>
     private void ExtractSubprogramContent(
+        ParserRuleContext ownerCtx,
+        ITerminalNode? isToken,
+        ITerminalNode? asToken,
         PlSqlParser.Seq_of_declare_specsContext? declareSpecs,
         PlSqlParser.BodyContext? body,
         string? subprogram)
     {
         int pos = 0;
+        int bodyStartIndex = body?.Start.StartIndex ?? -1;
+        int headerEndIndex = isToken?.Symbol.StopIndex
+            ?? asToken?.Symbol.StopIndex
+            ?? ownerCtx.Start.StopIndex;
+        int? recoveredOuterBeginIndex = bodyStartIndex >= 0
+            ? FindUnmatchedBeginBefore(headerEndIndex + 1, bodyStartIndex)
+            : null;
+        int outerBeginIndex = recoveredOuterBeginIndex ?? bodyStartIndex;
 
-        if (declareSpecs != null)
+        if (declareSpecs != null && outerBeginIndex >= 0)
         {
-            var specs = declareSpecs.declare_spec();
-            string declareText;
-            int declareEndLine;
-            if (specs.Length > 0 && specs[specs.Length - 1].Stop != null)
+            int declareStart = declareSpecs.Start.StartIndex;
+            string declareText = GetTrimmedSourceText(declareStart, outerBeginIndex, out int? declareEndIndex);
+            if (!string.IsNullOrWhiteSpace(declareText) && declareEndIndex != null)
             {
-                var lastSpec = specs[specs.Length - 1];
-                int dStart = declareSpecs.Start.StartIndex;
-                int dEnd = lastSpec.Stop!.StopIndex;
-                declareText = (dStart >= 0 && dEnd >= dStart && dEnd < _sourceText.Length)
-                    ? _sourceText.Substring(dStart, dEnd - dStart + 1)
-                    : GetSourceText(declareSpecs);
-                declareEndLine = lastSpec.Stop!.Line;
+                int declareEndLine = GetLineNumberAtIndex(declareEndIndex.Value);
+                AddSubstatement(subprogram, null, ref pos, declareText,
+                    "DECLARE", declareSpecs.Start.Line, declareEndLine, out _);
             }
-            else
-            {
-                declareText = GetSourceText(declareSpecs);
-                declareEndLine = declareSpecs.Stop?.Line ?? declareSpecs.Start.Line;
-            }
-            AddSubstatement(subprogram, null, ref pos, declareText,
-                "DECLARE", declareSpecs.Start.Line, declareEndLine, out _);
         }
 
-        if (body != null)
+        if (outerBeginIndex >= 0)
         {
-            int beginStart = body.Start.StartIndex;
-            int beginEnd = body.Start.StopIndex;
-            string beginHeaderText = (beginStart >= 0 && beginEnd >= beginStart && beginEnd < _sourceText.Length)
-                ? _sourceText.Substring(beginStart, beginEnd - beginStart + 1)
+            int beginEnd = Math.Min(outerBeginIndex + "begin".Length, _sourceText.Length);
+            string beginHeaderText = (outerBeginIndex >= 0 && beginEnd > outerBeginIndex)
+                ? _sourceText.Substring(outerBeginIndex, beginEnd - outerBeginIndex)
                 : "begin";
+            int beginLine = GetLineNumberAtIndex(outerBeginIndex);
             AddSubstatement(subprogram, null, ref pos, beginHeaderText,
-                "BEGIN_END", body.Start.Line, body.Start.Line, out int bodySeq);
+                "BEGIN_END", beginLine, beginLine, out int bodySeq);
             int innerPos = 0;
-            ExtractBodyContent(body, subprogram, bodySeq, ref innerPos);
+
+            if (body != null)
+            {
+                if (body.Start.StartIndex == outerBeginIndex)
+                {
+                    ExtractBodyContent(body, subprogram, bodySeq, ref innerPos);
+                }
+                else if (body.Start.StartIndex > outerBeginIndex)
+                {
+                    AddLooseStatementsFromSegment(subprogram, bodySeq, ref innerPos,
+                        outerBeginIndex + "begin".Length, body.Start.StartIndex);
+
+                    AddSubstatement(subprogram, bodySeq, ref innerPos, GetSourceText(body),
+                        "BEGIN_END", body.Start.Line, body.Stop?.Line ?? body.Start.Line, out int nestedBodySeq);
+                    int nestedPos = 0;
+                    ExtractBodyContent(body, subprogram, nestedBodySeq, ref nestedPos);
+                }
+            }
         }
     }
+
+    private int? FindUnmatchedBeginBefore(int searchStartIndex, int searchEndExclusive)
+    {
+        if (searchStartIndex < 0 || searchEndExclusive <= searchStartIndex || searchStartIndex >= _sourceText.Length)
+            return null;
+
+        int limit = Math.Min(searchEndExclusive, _sourceText.Length);
+        var beginStack = new List<int>();
+        bool inLineComment = false;
+        bool inBlockComment = false;
+        bool inString = false;
+
+        for (int i = Math.Max(0, searchStartIndex); i < limit; i++)
+        {
+            char ch = _sourceText[i];
+            char next = i + 1 < limit ? _sourceText[i + 1] : '\0';
+
+            if (inLineComment)
+            {
+                if (ch == '\n')
+                    inLineComment = false;
+                continue;
+            }
+
+            if (inBlockComment)
+            {
+                if (ch == '*' && next == '/')
+                {
+                    inBlockComment = false;
+                    i++;
+                }
+                continue;
+            }
+
+            if (inString)
+            {
+                if (ch == '\'')
+                {
+                    if (next == '\'')
+                        i++;
+                    else
+                        inString = false;
+                }
+                continue;
+            }
+
+            if (ch == '-' && next == '-')
+            {
+                inLineComment = true;
+                i++;
+                continue;
+            }
+
+            if (ch == '/' && next == '*')
+            {
+                inBlockComment = true;
+                i++;
+                continue;
+            }
+
+            if (ch == '\'')
+            {
+                inString = true;
+                continue;
+            }
+
+            if (IsKeywordAt(i, "BEGIN"))
+            {
+                beginStack.Add(i);
+                i += "BEGIN".Length - 1;
+                continue;
+            }
+
+            if (IsKeywordAt(i, "END"))
+            {
+                string? nextKeyword = ReadNextKeyword(i + "END".Length, limit);
+                if (!string.Equals(nextKeyword, "IF", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(nextKeyword, "LOOP", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(nextKeyword, "CASE", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (beginStack.Count > 0)
+                        beginStack.RemoveAt(beginStack.Count - 1);
+                }
+                i += "END".Length - 1;
+            }
+        }
+
+        return beginStack.Count > 0 ? beginStack[0] : null;
+    }
+
+    private void AddLooseStatementsFromSegment(
+        string? subprogram,
+        int? parentSeq,
+        ref int position,
+        int startIndex,
+        int endExclusive)
+    {
+        if (startIndex < 0 || endExclusive <= startIndex || startIndex >= _sourceText.Length)
+            return;
+
+        int limit = Math.Min(endExclusive, _sourceText.Length);
+        int currentLine = GetLineNumberAtIndex(startIndex);
+        bool inLineComment = false;
+        bool inBlockComment = false;
+        bool inString = false;
+        int? stmtStart = null;
+        int stmtStartLine = currentLine;
+        int? lastCodeIndex = null;
+        int lastCodeLine = currentLine;
+
+        for (int i = startIndex; i < limit; i++)
+        {
+            char ch = _sourceText[i];
+            char next = i + 1 < limit ? _sourceText[i + 1] : '\0';
+
+            if (inLineComment)
+            {
+                if (ch == '\n')
+                {
+                    inLineComment = false;
+                    currentLine++;
+                }
+                continue;
+            }
+
+            if (inBlockComment)
+            {
+                if (ch == '*' && next == '/')
+                {
+                    inBlockComment = false;
+                    i++;
+                }
+                else if (ch == '\n')
+                {
+                    currentLine++;
+                }
+                continue;
+            }
+
+            if (inString)
+            {
+                if (stmtStart == null)
+                {
+                    stmtStart = i;
+                    stmtStartLine = currentLine;
+                }
+                lastCodeIndex = i;
+                lastCodeLine = currentLine;
+
+                if (ch == '\'')
+                {
+                    if (next == '\'')
+                    {
+                        lastCodeIndex = i + 1;
+                        i++;
+                    }
+                    else
+                    {
+                        inString = false;
+                    }
+                }
+                else if (ch == '\n')
+                {
+                    currentLine++;
+                    lastCodeLine = currentLine - 1;
+                }
+                continue;
+            }
+
+            if (ch == '-' && next == '-')
+            {
+                inLineComment = true;
+                i++;
+                continue;
+            }
+
+            if (ch == '/' && next == '*')
+            {
+                inBlockComment = true;
+                i++;
+                continue;
+            }
+
+            if (char.IsWhiteSpace(ch))
+            {
+                if (ch == '\n')
+                    currentLine++;
+                continue;
+            }
+
+            if (ch == ';')
+            {
+                EmitLooseStatement(subprogram, parentSeq, ref position, stmtStart, stmtStartLine, lastCodeIndex, lastCodeLine);
+                stmtStart = null;
+                lastCodeIndex = null;
+                continue;
+            }
+
+            if (stmtStart == null)
+            {
+                stmtStart = i;
+                stmtStartLine = currentLine;
+            }
+
+            if (ch == '\'')
+                inString = true;
+
+            lastCodeIndex = i;
+            lastCodeLine = currentLine;
+        }
+
+        EmitLooseStatement(subprogram, parentSeq, ref position, stmtStart, stmtStartLine, lastCodeIndex, lastCodeLine);
+    }
+
+    private void EmitLooseStatement(
+        string? subprogram,
+        int? parentSeq,
+        ref int position,
+        int? stmtStart,
+        int stmtStartLine,
+        int? lastCodeIndex,
+        int lastCodeLine)
+    {
+        if (stmtStart == null || lastCodeIndex == null || lastCodeIndex < stmtStart)
+            return;
+
+        string statementText = _sourceText.Substring(stmtStart.Value, lastCodeIndex.Value - stmtStart.Value + 1).TrimEnd();
+        if (string.IsNullOrWhiteSpace(statementText))
+            return;
+
+        AddSubstatement(subprogram, parentSeq, ref position, statementText,
+            DetermineLooseStatementType(statementText), stmtStartLine, lastCodeLine, out _);
+    }
+
+    private static string DetermineLooseStatementType(string statementText)
+    {
+        string trimmed = statementText.TrimStart();
+        if (trimmed.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("WITH", StringComparison.OrdinalIgnoreCase))
+            return "SQL_SELECT";
+        if (trimmed.StartsWith("UPDATE", StringComparison.OrdinalIgnoreCase))
+            return "SQL_UPDATE";
+        if (trimmed.StartsWith("INSERT", StringComparison.OrdinalIgnoreCase))
+            return "SQL_INSERT";
+        if (trimmed.StartsWith("DELETE", StringComparison.OrdinalIgnoreCase))
+            return "SQL_DELETE";
+        if (trimmed.StartsWith("MERGE", StringComparison.OrdinalIgnoreCase))
+            return "SQL_MERGE";
+        if (trimmed.StartsWith("EXECUTE IMMEDIATE", StringComparison.OrdinalIgnoreCase))
+            return "SQL_EXECUTE_IMMEDIATE";
+        return "OTHER";
+    }
+
+    private string GetTrimmedSourceText(int startIndex, int endExclusive, out int? trimmedEndIndex)
+    {
+        trimmedEndIndex = null;
+        if (startIndex < 0 || endExclusive <= startIndex || startIndex >= _sourceText.Length)
+            return string.Empty;
+
+        int limit = Math.Min(endExclusive, _sourceText.Length);
+        while (limit > startIndex && char.IsWhiteSpace(_sourceText[limit - 1]))
+            limit--;
+
+        if (limit <= startIndex)
+            return string.Empty;
+
+        trimmedEndIndex = limit - 1;
+        return _sourceText.Substring(startIndex, limit - startIndex);
+    }
+
+    private int GetLineNumberAtIndex(int index)
+    {
+        if (index <= 0) return 1;
+
+        int line = 1;
+        int limit = Math.Min(index, _sourceText.Length);
+        for (int i = 0; i < limit; i++)
+            if (_sourceText[i] == '\n')
+                line++;
+
+        return line;
+    }
+
+    private bool IsKeywordAt(int index, string keyword)
+    {
+        if (index < 0 || index + keyword.Length > _sourceText.Length)
+            return false;
+
+        if (!_sourceText.AsSpan(index, keyword.Length).Equals(keyword.AsSpan(), StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        int before = index - 1;
+        int after = index + keyword.Length;
+        bool startOk = before < 0 || !IsIdentifierChar(_sourceText[before]);
+        bool endOk = after >= _sourceText.Length || !IsIdentifierChar(_sourceText[after]);
+        return startOk && endOk;
+    }
+
+    private string? ReadNextKeyword(int index, int limit)
+    {
+        int i = index;
+        while (i < limit && char.IsWhiteSpace(_sourceText[i]))
+            i++;
+
+        if (i >= limit || !char.IsLetter(_sourceText[i]))
+            return null;
+
+        int start = i;
+        while (i < limit && IsIdentifierChar(_sourceText[i]))
+            i++;
+
+        return _sourceText.Substring(start, i - start);
+    }
+
+    private static bool IsIdentifierChar(char ch) =>
+        char.IsLetterOrDigit(ch) || ch == '_' || ch == '$' || ch == '#';
 
     /// <summary>
     /// Extracts the content of a BEGIN..END block (seq_of_statements + exception handlers)

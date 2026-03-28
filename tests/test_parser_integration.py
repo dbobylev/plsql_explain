@@ -171,6 +171,27 @@ CREATE OR REPLACE PACKAGE BODY TEST_PKG AS
 END TEST_PKG;
 """
 
+_PKG_DECLARE_BEFORE_BEGIN = """\
+CREATE OR REPLACE PACKAGE BODY MYSCHEMA.MYPACKAGE AS
+
+    vNum NUMBER;
+
+    PROCEDURE TEST_PROCEDURE(pName IN VARCHAR2, pVal IN NUMBER) IS
+        vRes NUMBER;
+        vUpdated DATE;
+    BEGIN
+
+        --package4.proc2(pName, pVal);
+        vRes := MYSCHEMA.PACKAGE2.PROC2(pName, pVal);
+
+        BEGIN
+            NULL;
+        END;
+    END;
+
+END MYPACKAGE;
+"""
+
 
 @requires_binary
 def test_subprogram_extraction_returns_both_subprograms():
@@ -242,3 +263,43 @@ def test_substatements_source_text_is_nonempty():
 
     for s in out.substatements:
         assert s.source_text.strip(), f"Empty source_text for seq={s.seq} type={s.statement_type}"
+
+
+@requires_binary
+def test_declare_block_stops_before_begin_even_with_nested_block():
+    out = parse_object("MYSCHEMA", "MYPACKAGE", "PACKAGE BODY", _PKG_DECLARE_BEFORE_BEGIN)
+
+    assert out.status == "ok", f"Expected ok, got {out.status!r}: {out.error_message}"
+
+    declare_stmt = next(
+        s for s in out.substatements
+        if s.subprogram == "TEST_PROCEDURE" and s.statement_type == "DECLARE"
+    )
+    assert declare_stmt.start_line == 6
+    assert declare_stmt.end_line == 7
+    assert declare_stmt.source_text == "vRes NUMBER;\n        vUpdated DATE;"
+
+    top_begin = next(
+        s for s in out.substatements
+        if s.subprogram == "TEST_PROCEDURE"
+        and s.statement_type == "BEGIN_END"
+        and s.parent_seq is None
+    )
+    assert top_begin.start_line == 8
+    assert top_begin.source_text.upper() == "BEGIN"
+
+    top_children = [
+        s for s in out.substatements
+        if s.subprogram == "TEST_PROCEDURE" and s.parent_seq == top_begin.seq
+    ]
+    assert any(
+        child.statement_type == "OTHER"
+        and child.start_line == 11
+        and "PACKAGE2.PROC2" in child.source_text.upper()
+        for child in top_children
+    )
+    assert any(
+        child.statement_type == "BEGIN_END"
+        and child.start_line == 13
+        for child in top_children
+    )
