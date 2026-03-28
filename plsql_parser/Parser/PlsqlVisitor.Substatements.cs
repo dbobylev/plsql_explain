@@ -78,8 +78,13 @@ public partial class PlsqlVisitor
                     AddLooseStatementsFromSegment(subprogram, bodySeq, ref innerPos,
                         outerBeginIndex + "begin".Length, body.Start.StartIndex);
 
-                    AddSubstatement(subprogram, bodySeq, ref innerPos, GetSourceText(body),
-                        "BEGIN_END", body.Start.Line, body.Stop?.Line ?? body.Start.Line, out int nestedBodySeq);
+                    int nestedBodyStart = body.Start.StartIndex;
+                    int nestedBeginEnd = Math.Min(nestedBodyStart + "begin".Length, _sourceText.Length);
+                    string nestedBeginHeaderText = (nestedBodyStart >= 0 && nestedBeginEnd > nestedBodyStart && nestedBodyStart < _sourceText.Length)
+                        ? _sourceText.Substring(nestedBodyStart, nestedBeginEnd - nestedBodyStart)
+                        : "begin";
+                    AddSubstatement(subprogram, bodySeq, ref innerPos, nestedBeginHeaderText,
+                        "BEGIN_END", body.Start.Line, body.Start.Line, out int nestedBodySeq);
                     int nestedPos = 0;
                     ExtractBodyContent(body, subprogram, nestedBodySeq, ref nestedPos);
                 }
@@ -298,8 +303,13 @@ public partial class PlsqlVisitor
         var body = ctx.body();
         if (body != null)
         {
-            AddSubstatement(subprogram, parentSeq, ref position, GetSourceText(body),
-                "BEGIN_END", body.Start.Line, body.Stop?.Line ?? body.Start.Line, out int beginSeq);
+            int bodyStart = body.Start.StartIndex;
+            int beginEnd = Math.Min(bodyStart + "begin".Length, _sourceText.Length);
+            string beginHeaderText = (bodyStart >= 0 && beginEnd > bodyStart && bodyStart < _sourceText.Length)
+                ? _sourceText.Substring(bodyStart, beginEnd - bodyStart)
+                : "begin";
+            AddSubstatement(subprogram, parentSeq, ref position, beginHeaderText,
+                "BEGIN_END", body.Start.Line, body.Start.Line, out int beginSeq);
             int innerPos = 0;
             ExtractBodyContent(body, subprogram, beginSeq, ref innerPos);
             return;

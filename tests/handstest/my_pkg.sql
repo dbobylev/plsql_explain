@@ -9,6 +9,8 @@ create or replace package body myschema.mypackage as
 
         package4.proc2(pName, pVAl);
         vRes := myschemax.package22.proc2(pName, pVAl);
+
+        -- some comment1
         select 1 into vRes from dual;
 
         begin
