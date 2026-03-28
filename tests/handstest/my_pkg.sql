@@ -6,7 +6,10 @@ create or replace package body myschema.mypackage as
         vRes number;
         vUpdated date;
     begin
+
+        --package4.proc2(pName, pVAl);
         vRes := myschema.package2.proc2(pName, pVAl);
+        
 
         begin
             for i in (
@@ -33,8 +36,12 @@ create or replace package body myschema.mypackage as
             for i in 1 .. xx.count loop
                 dbms_output.put_line('xxx');
             end loop;
+
+            select 1 into vRes from dual;
             
-            vRes := null;
+            begin
+              vRes := null;
+            end;
         exception
             when no_data_found then
             package3.log('error while call test_procedure, pName: ' || pName);
@@ -42,5 +49,4 @@ create or replace package body myschema.mypackage as
             when others then
             raise;
         end;
-
     end;

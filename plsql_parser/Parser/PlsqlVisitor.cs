@@ -173,12 +173,41 @@ public class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
         int pos = 0;
 
         if (declareSpecs != null)
-            AddSubstatement(subprogram, null, ref pos, GetSourceText(declareSpecs),
-                "DECLARE", declareSpecs.Start.Line, declareSpecs.Stop?.Line ?? declareSpecs.Start.Line,
-                out _);
+        {
+            var specs = declareSpecs.declare_spec();
+            string declareText;
+            int declareEndLine;
+            if (specs.Length > 0 && specs[specs.Length - 1].Stop != null)
+            {
+                var lastSpec = specs[specs.Length - 1];
+                int dStart = declareSpecs.Start.StartIndex;
+                int dEnd = lastSpec.Stop!.StopIndex;
+                declareText = (dStart >= 0 && dEnd >= dStart && dEnd < _sourceText.Length)
+                    ? _sourceText.Substring(dStart, dEnd - dStart + 1)
+                    : GetSourceText(declareSpecs);
+                declareEndLine = lastSpec.Stop!.Line;
+            }
+            else
+            {
+                declareText = GetSourceText(declareSpecs);
+                declareEndLine = declareSpecs.Stop?.Line ?? declareSpecs.Start.Line;
+            }
+            AddSubstatement(subprogram, null, ref pos, declareText,
+                "DECLARE", declareSpecs.Start.Line, declareEndLine, out _);
+        }
 
         if (body != null)
-            ExtractBodyContent(body, subprogram, null, ref pos);
+        {
+            int beginStart = body.Start.StartIndex;
+            int beginEnd = body.Start.StopIndex;
+            string beginHeaderText = (beginStart >= 0 && beginEnd >= beginStart && beginEnd < _sourceText.Length)
+                ? _sourceText.Substring(beginStart, beginEnd - beginStart + 1)
+                : "begin";
+            AddSubstatement(subprogram, null, ref pos, beginHeaderText,
+                "BEGIN_END", body.Start.Line, body.Start.Line, out int bodySeq);
+            int innerPos = 0;
+            ExtractBodyContent(body, subprogram, bodySeq, ref innerPos);
+        }
     }
 
     /// <summary>

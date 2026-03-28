@@ -4,7 +4,9 @@
       "Bash(python -m pytest tests/test_cmd_debug.py tests/test_main.py -q)",
       "Bash(.venv/Scripts/python.exe -m pytest tests/test_cmd_debug.py tests/test_main.py -q)",
       "Bash(py -m pytest tests/test_cmd_debug.py tests/test_main.py -q)",
-      "Bash(pytest)"
+      "Bash(pytest)",
+      "Bash(dotnet build:*)",
+      "Bash(python3 main.py debug --source-file ./tests/handstest/my_pkg.sql --output ./tests/handstest/my_pkg_report.txt)"
     ]
   }
 }
