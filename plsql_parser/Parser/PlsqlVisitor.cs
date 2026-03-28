@@ -319,7 +319,9 @@ public class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
             return;
         }
 
-        // All other statements (assignment, return, raise, exit, goto, etc.) — skip
+        // All other statements (assignment, return, raise, exit, goto, etc.)
+        AddSubstatement(subprogram, parentSeq, ref position, GetSourceText(ctx),
+            "OTHER", ctx.Start.Line, ctx.Stop?.Line ?? ctx.Start.Line, out _);
     }
 
     private static string DetermineLoopType(PlSqlParser.Loop_statementContext ctx)
