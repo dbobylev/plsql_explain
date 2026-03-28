@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/test_cmd_debug.py tests/test_main.py -q)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/test_cmd_debug.py tests/test_main.py -q)",
+      "Bash(py -m pytest tests/test_cmd_debug.py tests/test_main.py -q)"
+    ]
+  }
+}

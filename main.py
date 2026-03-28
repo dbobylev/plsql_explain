@@ -102,6 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
     source_group.add_argument("--source-file", metavar="FILE", help="Путь к .sql файлу")
     source_group.add_argument("--source", help="PL/SQL текст inline")
     debug_parser.add_argument("--json", dest="output_json", action="store_true", help="Вывод в формате JSON")
+    debug_parser.add_argument("--output", dest="output_file", metavar="FILE", help="Записать результат в файл (UTF-8) вместо stdout")
     debug_parser.set_defaults(func=cmd_debug)
 
     return parser

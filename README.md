@@ -110,6 +110,29 @@ python main.py parse --schema MYSCHEMA --object PKG_ORDERS
 python main.py parse --schema MYSCHEMA --force
 ```
 
+### Debug — запустить парсер на произвольном PL/SQL
+
+Команда `debug` прогоняет C#-парсер на произвольном исходнике (без Oracle и SQLite) и выводит результат: граф вызовов, обращения к таблицам, список подпрограмм и дерево операторов.
+
+```bash
+# Передать исходник inline
+python main.py debug --source "BEGIN pkg_orders.calculate_total; END;"
+
+# Передать исходник из файла
+python main.py debug --source-file my_package.sql
+
+# Указать схему/объект/тип (влияют на подпись в выводе, по умолчанию DEBUG.ANONYMOUS / PACKAGE BODY)
+python main.py debug --source-file my_pkg.sql --schema MYSCHEMA --object MY_PKG --type "PACKAGE BODY"
+
+# Получить результат как JSON (удобно для скриптов)
+python main.py debug --source-file my_pkg.sql --json
+
+# Сохранить результат в файл — надёжный способ без проблем с кодировкой на Windows
+python main.py debug --source-file my_pkg.sql --output my_pkg_report.txt
+python main.py debug --source-file my_pkg.sql --json --output my_pkg_parse.json
+python main.py debug --source-file .\tests\debug\my_pkg.sql --output .\tests\debug\my_pkg_report.txt
+```
+
 ### Шаг 3 — Посмотреть дерево зависимостей (без LLM)
 
 ```bash

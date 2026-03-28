@@ -91,6 +91,7 @@ def _print_result(result: ParseOutput) -> None:
 
 def run(args: argparse.Namespace) -> None:
     import dataclasses
+    import io
     import json as _json
     from parser.runner import parse_object, ParserError
 
@@ -115,7 +116,23 @@ def run(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     if args.output_json:
-        print(_json.dumps(dataclasses.asdict(result), indent=2, ensure_ascii=False))
-        return
+        text = _json.dumps(dataclasses.asdict(result), indent=2, ensure_ascii=False)
+    else:
+        buf = io.StringIO()
+        _stdout = sys.stdout
+        sys.stdout = buf
+        try:
+            _print_result(result)
+        finally:
+            sys.stdout = _stdout
+        text = buf.getvalue()
 
-    _print_result(result)
+    if args.output_file:
+        try:
+            with open(args.output_file, "w", encoding="utf-8") as f:
+                f.write(text)
+        except OSError as exc:
+            print(f"Cannot write file: {exc}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        sys.stdout.write(text)
