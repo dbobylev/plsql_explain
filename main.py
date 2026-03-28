@@ -14,9 +14,14 @@ def cmd_summarize(args: argparse.Namespace) -> None:
     db_path = os.environ.get("SQLITE_PATH", "./data/plsql.db")
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    node = build_tree(conn, args.schema, args.object, args.subprogram or None)
+    node = build_tree(conn, args.schema, args.object, args.subprogram or None, max_depth=args.depth)
     client = LlmClient()
-    summary = summarize_node(conn, node, client, force=args.force)
+    summary = summarize_node(
+        conn, node, client,
+        force=args.force,
+        summary_kind=args.kind,
+        use_substatements=not args.no_substatements,
+    )
     conn.close()
     print(summary)
 
@@ -31,7 +36,7 @@ def cmd_explain(args: argparse.Namespace) -> None:
     db_path = os.environ.get("SQLITE_PATH", "./data/plsql.db")
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    node = build_tree(conn, args.schema, args.object, args.subprogram or None)
+    node = build_tree(conn, args.schema, args.object, args.subprogram or None, max_depth=args.depth)
     conn.close()
     print_tree(node)
 
@@ -85,6 +90,9 @@ def build_parser() -> argparse.ArgumentParser:
     summarize_parser.add_argument("--schema", required=True, help="Имя схемы Oracle")
     summarize_parser.add_argument("--object", required=True, help="Имя объекта")
     summarize_parser.add_argument("--subprogram", default=None, help="Имя подпрограммы внутри пакета (опционально)")
+    summarize_parser.add_argument("--depth", type=int, default=None, help="Максимальная глубина обхода зависимостей (по умолчанию: без ограничения)")
+    summarize_parser.add_argument("--kind", choices=["brief", "detailed"], default="brief", help="Тип суммари: brief (краткое) или detailed (подробное)")
+    summarize_parser.add_argument("--no-substatements", action="store_true", help="Не использовать анализ по подоператорам (классический режим)")
     summarize_parser.add_argument("--force", action="store_true", help="Игнорировать кэш суммари")
     summarize_parser.set_defaults(func=cmd_summarize)
 
@@ -92,6 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     explain_parser.add_argument("--schema", required=True, help="Имя схемы Oracle")
     explain_parser.add_argument("--object", required=True, help="Имя объекта (пакет, процедура, функция)")
     explain_parser.add_argument("--subprogram", default=None, help="Имя подпрограммы внутри пакета (опционально)")
+    explain_parser.add_argument("--depth", type=int, default=None, help="Максимальная глубина обхода зависимостей")
     explain_parser.set_defaults(func=cmd_explain)
 
     debug_parser = subparsers.add_parser("debug", help="Запустить C# парсер на произвольном PL/SQL и изучить результат")

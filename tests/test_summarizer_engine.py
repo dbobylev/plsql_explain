@@ -235,3 +235,207 @@ def test_bottom_up_order(mem_conn: sqlite3.Connection) -> None:
     summarize_node(mem_conn, a, client)
 
     assert order == ["PKG_C", "PKG_B", "PKG_A"]
+
+
+# ── Substatement-based summarization tests ───────────────────────────────────
+
+import hashlib
+
+
+def _insert_substatement(
+    conn: sqlite3.Connection,
+    name: str,
+    subprogram: str,
+    seq: int,
+    parent_seq: int | None,
+    position: int,
+    statement_type: str,
+    source_text: str,
+) -> None:
+    source_hash = hashlib.sha256(source_text.encode()).hexdigest()
+    conn.execute(
+        """
+        INSERT INTO substatement
+            (schema_name, object_name, object_type, subprogram, seq, parent_seq,
+             position, statement_type, start_line, end_line, source_text, source_hash)
+        VALUES ('S', ?, 'PACKAGE BODY', ?, ?, ?, ?, ?, 1, 10, ?, ?)
+        """,
+        (name, subprogram, seq, parent_seq, position, statement_type, source_text, source_hash),
+    )
+    conn.commit()
+
+
+def test_substatement_path_used_for_large_methods(mem_conn: sqlite3.Connection) -> None:
+    """When substatements exist and source > threshold, chunk-based analysis is used."""
+    _insert_source(mem_conn, "PKG_BIG")
+    _insert_parse_result(mem_conn, "PKG_BIG")
+
+    # Insert substatements with total source > 4000 chars
+    big_source = "A" * 2500
+    for i in range(3):
+        _insert_substatement(mem_conn, "PKG_BIG", "PROC1", seq=i,
+                             parent_seq=None, position=i,
+                             statement_type="OTHER", source_text=big_source)
+
+    node = _ok_node("PKG_BIG", subprogram="PROC1")
+    calls: list[str] = []
+
+    def fake_complete(system: str, user: str) -> str:
+        if "Проанализируй" in user:
+            calls.append("chunk")
+            return "анализ чанка"
+        if "краткое описание" in user:
+            calls.append("aggregate")
+            return "итоговое суммари"
+        calls.append("unknown")
+        return "unknown"
+
+    client = MagicMock()
+    client.complete.side_effect = fake_complete
+
+    result = summarize_node(mem_conn, node, client, summary_kind="brief", use_substatements=True)
+
+    assert result == "итоговое суммари"
+    assert "chunk" in calls
+    assert "aggregate" in calls
+
+
+def test_substatement_fallback_for_small_methods(mem_conn: sqlite3.Connection) -> None:
+    """When substatements exist but source < threshold, classic path is used."""
+    _insert_source(mem_conn, "PKG_SMALL")
+    _insert_parse_result(mem_conn, "PKG_SMALL")
+
+    # Insert small substatements (< 4000 chars total)
+    _insert_substatement(mem_conn, "PKG_SMALL", "PROC1", seq=0,
+                         parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="x := 1;")
+
+    node = _ok_node("PKG_SMALL", subprogram="PROC1")
+    client = _make_client("классическое суммари")
+
+    result = summarize_node(mem_conn, node, client, summary_kind="brief", use_substatements=True)
+
+    assert result == "классическое суммари"
+    client.complete.assert_called_once()
+
+
+def test_detailed_kind_aggregation(mem_conn: sqlite3.Connection) -> None:
+    """summary_kind='detailed' uses detailed aggregation prompt."""
+    _insert_source(mem_conn, "PKG_DET")
+    _insert_parse_result(mem_conn, "PKG_DET")
+
+    big_source = "B" * 2500
+    for i in range(3):
+        _insert_substatement(mem_conn, "PKG_DET", "PROC1", seq=i,
+                             parent_seq=None, position=i,
+                             statement_type="SQL_SELECT", source_text=big_source)
+
+    node = _ok_node("PKG_DET", subprogram="PROC1")
+    prompts_seen: list[str] = []
+
+    def fake_complete(system: str, user: str) -> str:
+        if "Проанализируй" in user:
+            return "анализ"
+        if "подробное описание" in user.lower():
+            prompts_seen.append("detailed")
+            return "подробное суммари"
+        prompts_seen.append("other")
+        return "суммари"
+
+    client = MagicMock()
+    client.complete.side_effect = fake_complete
+
+    result = summarize_node(mem_conn, node, client, summary_kind="detailed", use_substatements=True)
+
+    assert "detailed" in prompts_seen
+    assert result == "подробное суммари"
+
+
+def test_no_substatements_flag_skips_chunks(mem_conn: sqlite3.Connection) -> None:
+    """use_substatements=False always uses classic path."""
+    _insert_source(mem_conn, "PKG_NO_SUB")
+    _insert_parse_result(mem_conn, "PKG_NO_SUB")
+
+    big_source = "C" * 2500
+    for i in range(3):
+        _insert_substatement(mem_conn, "PKG_NO_SUB", "PROC1", seq=i,
+                             parent_seq=None, position=i,
+                             statement_type="OTHER", source_text=big_source)
+
+    node = _ok_node("PKG_NO_SUB", subprogram="PROC1")
+    client = _make_client("классическое суммари")
+
+    result = summarize_node(mem_conn, node, client, use_substatements=False)
+
+    assert result == "классическое суммари"
+    # Classic path: single call (no chunk analysis)
+    client.complete.assert_called_once()
+
+
+def test_chunk_cache_reused(mem_conn: sqlite3.Connection) -> None:
+    """Cached chunk analyses are reused on second run."""
+    _insert_source(mem_conn, "PKG_CACHE")
+    _insert_parse_result(mem_conn, "PKG_CACHE")
+
+    big_source = "D" * 2500
+    for i in range(2):
+        _insert_substatement(mem_conn, "PKG_CACHE", "PROC1", seq=i,
+                             parent_seq=None, position=i,
+                             statement_type="OTHER", source_text=big_source)
+
+    node = _ok_node("PKG_CACHE", subprogram="PROC1")
+
+    # First run: LLM called for chunks + aggregation
+    call_count_1 = 0
+
+    def fake_complete_1(system: str, user: str) -> str:
+        nonlocal call_count_1
+        call_count_1 += 1
+        if "Проанализируй" in user:
+            return "анализ чанка"
+        return "итоговое суммари"
+
+    client1 = MagicMock()
+    client1.complete.side_effect = fake_complete_1
+
+    summarize_node(mem_conn, node, client1, summary_kind="brief", use_substatements=True, force=True)
+
+    # Second run: chunks should be cached, only aggregation call needed
+    call_count_2 = 0
+
+    def fake_complete_2(system: str, user: str) -> str:
+        nonlocal call_count_2
+        call_count_2 += 1
+        if "Проанализируй" in user:
+            return "анализ чанка (новый)"
+        return "итоговое суммари 2"
+
+    client2 = MagicMock()
+    client2.complete.side_effect = fake_complete_2
+
+    # force=True to bypass summary cache, but chunk cache should still work
+    result = summarize_node(mem_conn, node, client2, summary_kind="brief", use_substatements=True, force=True)
+
+    assert result == "итоговое суммари 2"
+    # Chunk analyses cached → only aggregation call
+    assert call_count_2 < call_count_1
+
+
+def test_summary_kind_cached_separately(mem_conn: sqlite3.Connection) -> None:
+    """Brief and detailed summaries are cached independently."""
+    _insert_source(mem_conn, "PKG_KINDS")
+    _insert_parse_result(mem_conn, "PKG_KINDS")
+
+    node = _ok_node("PKG_KINDS")
+
+    client = MagicMock()
+    client.complete.side_effect = lambda s, u: "brief summary" if "краткое" in u else "detailed summary"
+
+    # Summarize brief
+    r1 = summarize_node(mem_conn, node, client, summary_kind="brief")
+    # Summarize detailed
+    r2 = summarize_node(mem_conn, node, client, summary_kind="detailed")
+
+    assert r1 != r2
+    # Both calls should invoke LLM (different kinds, not cached together)
+    assert client.complete.call_count == 2

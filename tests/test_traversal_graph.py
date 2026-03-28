@@ -228,3 +228,58 @@ def test_subprogram_filter(mem_conn: sqlite3.Connection) -> None:
     node_y = build_tree(mem_conn, "S", "PKG_A", subprogram="PROC_Y")
     assert len(node_y.children) == 1
     assert node_y.children[0].object_name == "PKG_C"
+
+
+# ── Depth-limiting tests ────────────────────────────────────────────────────
+
+def test_max_depth_zero_no_children(mem_conn: sqlite3.Connection) -> None:
+    """max_depth=0: root node resolved, but no children expanded."""
+    for name in ("PKG_A", "PKG_B"):
+        _insert_source(mem_conn, "S", name)
+        _insert_parse_result(mem_conn, "S", name)
+    _insert_call_edge(mem_conn, "S", "PKG_A", "PACKAGE BODY", None, "PKG_B")
+    _insert_table_access(mem_conn, "S", "PKG_A", "PACKAGE BODY", None, "ORDERS", "SELECT")
+
+    node = build_tree(mem_conn, "S", "PKG_A", max_depth=0)
+
+    assert node.status == "ok"
+    assert node.object_name == "PKG_A"
+    assert node.children == []
+    # Table accesses are still attached to the root
+    assert len(node.table_accesses) == 1
+
+
+def test_max_depth_one_direct_deps_only(mem_conn: sqlite3.Connection) -> None:
+    """max_depth=1: direct children expanded, but their children are not."""
+    for name in ("PKG_A", "PKG_B", "PKG_C"):
+        _insert_source(mem_conn, "S", name)
+        _insert_parse_result(mem_conn, "S", name)
+    _insert_call_edge(mem_conn, "S", "PKG_A", "PACKAGE BODY", None, "PKG_B")
+    _insert_call_edge(mem_conn, "S", "PKG_B", "PACKAGE BODY", None, "PKG_C")
+
+    node = build_tree(mem_conn, "S", "PKG_A", max_depth=1)
+
+    assert node.status == "ok"
+    assert len(node.children) == 1
+    b = node.children[0]
+    assert b.object_name == "PKG_B"
+    assert b.status == "ok"
+    assert b.children == []  # PKG_C not expanded
+
+
+def test_max_depth_none_unlimited(mem_conn: sqlite3.Connection) -> None:
+    """max_depth=None (default): full tree expansion."""
+    for name in ("PKG_A", "PKG_B", "PKG_C"):
+        _insert_source(mem_conn, "S", name)
+        _insert_parse_result(mem_conn, "S", name)
+    _insert_call_edge(mem_conn, "S", "PKG_A", "PACKAGE BODY", None, "PKG_B")
+    _insert_call_edge(mem_conn, "S", "PKG_B", "PACKAGE BODY", None, "PKG_C")
+
+    node = build_tree(mem_conn, "S", "PKG_A", max_depth=None)
+
+    assert len(node.children) == 1
+    b = node.children[0]
+    assert len(b.children) == 1
+    c = b.children[0]
+    assert c.object_name == "PKG_C"
+    assert c.status == "ok"

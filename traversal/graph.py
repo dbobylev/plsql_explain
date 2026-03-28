@@ -12,7 +12,9 @@ def build_tree(
     schema: str,
     object_name: str,
     subprogram: Optional[str] = None,
+    max_depth: Optional[int] = None,
     _in_stack: Optional[set[tuple[str, str, str]]] = None,
+    _depth: int = 0,
 ) -> DependencyNode:
     """
     Build a dependency tree rooted at (schema, object_name, subprogram).
@@ -64,6 +66,20 @@ def build_tree(
     _in_stack.add(key)
 
     accesses = sqlite_store.get_table_accesses(conn, schema, object_name, subprogram)
+
+    # Depth limit: resolve node itself but do not expand children
+    if max_depth is not None and _depth >= max_depth:
+        _in_stack.discard(key)
+        return DependencyNode(
+            schema_name=schema.upper(),
+            object_name=object_name.upper(),
+            object_type=object_type,
+            subprogram=subprogram,
+            status="ok",
+            error_message=None,
+            table_accesses=accesses,
+        )
+
     edges = sqlite_store.get_call_edges(conn, schema, object_name, subprogram)
 
     children = [
@@ -72,7 +88,9 @@ def build_tree(
             callee_schema if callee_schema else schema,  # NULL callee_schema → same schema
             callee_object,
             callee_subprogram,
-            _in_stack,
+            max_depth=max_depth,
+            _in_stack=_in_stack,
+            _depth=_depth + 1,
         )
         for callee_schema, callee_object, callee_subprogram in edges
     ]

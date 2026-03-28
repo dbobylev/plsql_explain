@@ -83,8 +83,22 @@ CREATE TABLE IF NOT EXISTS summary (
     object_name    TEXT NOT NULL,
     object_type    TEXT NOT NULL,
     subprogram     TEXT NOT NULL DEFAULT '',
+    summary_kind   TEXT NOT NULL DEFAULT 'brief',
     source_hash    TEXT NOT NULL,
     summary_text   TEXT NOT NULL,
     summarized_at  TEXT NOT NULL,
-    UNIQUE(schema_name, object_name, object_type, subprogram)
+    UNIQUE(schema_name, object_name, object_type, subprogram, summary_kind)
+);
+
+CREATE TABLE IF NOT EXISTS chunk_analysis (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    schema_name    TEXT NOT NULL,
+    object_name    TEXT NOT NULL,
+    object_type    TEXT NOT NULL,
+    subprogram     TEXT NOT NULL DEFAULT '',
+    chunk_index    INTEGER NOT NULL,
+    chunk_hash     TEXT NOT NULL,
+    analysis_text  TEXT NOT NULL,
+    analyzed_at    TEXT NOT NULL,
+    UNIQUE(schema_name, object_name, object_type, subprogram, chunk_index)
 );

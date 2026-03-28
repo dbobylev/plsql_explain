@@ -147,3 +147,4 @@ TestResult.xml
 .idea/
 .vscode/
 my_pkg_report.*
+.VSCodeCounter
