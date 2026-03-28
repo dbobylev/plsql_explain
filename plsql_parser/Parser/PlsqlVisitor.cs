@@ -227,26 +227,56 @@ public class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
         var ifStmt = ctx.if_statement();
         if (ifStmt != null)
         {
-            AddSubstatement(subprogram, parentSeq, ref position, GetSourceText(ifStmt),
-                "IF", ifStmt.Start.Line, ifStmt.Stop?.Line ?? ifStmt.Start.Line, out int ifSeq);
+            var ifThenToken = ifStmt.THEN();
+            string ifHeaderText;
+            int ifHeaderEndLine;
+            if (ifThenToken != null)
+            {
+                int start = ifStmt.Start.StartIndex;
+                int end = ifThenToken.Symbol.StopIndex;
+                ifHeaderText = (start >= 0 && end >= start && end < _sourceText.Length)
+                    ? _sourceText.Substring(start, end - start + 1)
+                    : GetSourceText(ifStmt);
+                ifHeaderEndLine = ifThenToken.Symbol.Line;
+            }
+            else
+            {
+                ifHeaderText = GetSourceText(ifStmt);
+                ifHeaderEndLine = ifStmt.Stop?.Line ?? ifStmt.Start.Line;
+            }
+            AddSubstatement(subprogram, parentSeq, ref position, ifHeaderText,
+                "IF", ifStmt.Start.Line, ifHeaderEndLine, out int ifSeq);
 
             int branchPos = 0;
 
-            // IF_THEN: the single seq_of_statements directly in if_statement
+            // THEN body: statements go directly under ifSeq (no IF_THEN wrapper)
             var thenStmts = ifStmt.seq_of_statements();
             if (thenStmts != null)
-            {
-                AddSubstatement(subprogram, ifSeq, ref branchPos, GetSourceText(thenStmts),
-                    "IF_THEN", thenStmts.Start.Line, thenStmts.Stop?.Line ?? thenStmts.Start.Line,
-                    out int thenSeq);
-                ExtractSeqStatements(thenStmts, subprogram, thenSeq);
-            }
+                foreach (var stmt in thenStmts.statement())
+                    ExtractStatement(stmt, subprogram, ifSeq, ref branchPos);
 
             // ELSIF branches
             foreach (var elsif in ifStmt.elsif_part())
             {
-                AddSubstatement(subprogram, ifSeq, ref branchPos, GetSourceText(elsif),
-                    "IF_ELSIF", elsif.Start.Line, elsif.Stop?.Line ?? elsif.Start.Line, out int elsifSeq);
+                var elsifThenToken = elsif.THEN();
+                string elsifHeaderText;
+                int elsifHeaderEndLine;
+                if (elsifThenToken != null)
+                {
+                    int start = elsif.Start.StartIndex;
+                    int end = elsifThenToken.Symbol.StopIndex;
+                    elsifHeaderText = (start >= 0 && end >= start && end < _sourceText.Length)
+                        ? _sourceText.Substring(start, end - start + 1)
+                        : GetSourceText(elsif);
+                    elsifHeaderEndLine = elsifThenToken.Symbol.Line;
+                }
+                else
+                {
+                    elsifHeaderText = GetSourceText(elsif);
+                    elsifHeaderEndLine = elsif.Stop?.Line ?? elsif.Start.Line;
+                }
+                AddSubstatement(subprogram, ifSeq, ref branchPos, elsifHeaderText,
+                    "IF_ELSIF", elsif.Start.Line, elsifHeaderEndLine, out int elsifSeq);
                 var elsifStmts = elsif.seq_of_statements();
                 if (elsifStmts != null)
                     ExtractSeqStatements(elsifStmts, subprogram, elsifSeq);
@@ -256,8 +286,25 @@ public class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
             var elsePart = ifStmt.else_part();
             if (elsePart != null)
             {
-                AddSubstatement(subprogram, ifSeq, ref branchPos, GetSourceText(elsePart),
-                    "IF_ELSE", elsePart.Start.Line, elsePart.Stop?.Line ?? elsePart.Start.Line, out int elseSeq);
+                var elseToken = elsePart.ELSE();
+                string elseHeaderText;
+                int elseHeaderEndLine;
+                if (elseToken != null)
+                {
+                    int start = elsePart.Start.StartIndex;
+                    int end = elseToken.Symbol.StopIndex;
+                    elseHeaderText = (start >= 0 && end >= start && end < _sourceText.Length)
+                        ? _sourceText.Substring(start, end - start + 1)
+                        : GetSourceText(elsePart);
+                    elseHeaderEndLine = elseToken.Symbol.Line;
+                }
+                else
+                {
+                    elseHeaderText = GetSourceText(elsePart);
+                    elseHeaderEndLine = elsePart.Stop?.Line ?? elsePart.Start.Line;
+                }
+                AddSubstatement(subprogram, ifSeq, ref branchPos, elseHeaderText,
+                    "IF_ELSE", elsePart.Start.Line, elseHeaderEndLine, out int elseSeq);
                 var elseStmts = elsePart.seq_of_statements();
                 if (elseStmts != null)
                     ExtractSeqStatements(elseStmts, subprogram, elseSeq);
@@ -270,11 +317,44 @@ public class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
         if (loopStmt != null)
         {
             string loopType = DetermineLoopType(loopStmt);
-            AddSubstatement(subprogram, parentSeq, ref position, GetSourceText(loopStmt),
-                loopType, loopStmt.Start.Line, loopStmt.Stop?.Line ?? loopStmt.Start.Line, out int loopSeq);
+
+            // Header only: from start up to and including the opening LOOP keyword
+            var openLoopToken = loopStmt.LOOP(0);
+            string headerText;
+            int headerEndLine;
+            if (openLoopToken != null)
+            {
+                int start = loopStmt.Start.StartIndex;
+                int end = openLoopToken.Symbol.StopIndex;
+                headerText = (start >= 0 && end >= start && end < _sourceText.Length)
+                    ? _sourceText.Substring(start, end - start + 1)
+                    : GetSourceText(loopStmt);
+                headerEndLine = openLoopToken.Symbol.Line;
+            }
+            else
+            {
+                headerText = GetSourceText(loopStmt);
+                headerEndLine = loopStmt.Stop?.Line ?? loopStmt.Start.Line;
+            }
+
+            AddSubstatement(subprogram, parentSeq, ref position, headerText,
+                loopType, loopStmt.Start.Line, headerEndLine, out int loopSeq);
+
+            // Children: SELECT from cursor param (LOOP_FOR) + body statements share one position counter
+            int childPos = 0;
+            if (loopType == "LOOP_FOR")
+            {
+                var selectStmt = loopStmt.cursor_loop_param()?.select_statement();
+                if (selectStmt != null)
+                    AddSubstatement(subprogram, loopSeq, ref childPos, GetSourceText(selectStmt),
+                        "SQL_SELECT", selectStmt.Start.Line, selectStmt.Stop?.Line ?? selectStmt.Start.Line, out _);
+            }
+
             var loopBody = loopStmt.seq_of_statements();
             if (loopBody != null)
-                ExtractSeqStatements(loopBody, subprogram, loopSeq);
+                foreach (var stmt in loopBody.statement())
+                    ExtractStatement(stmt, subprogram, loopSeq, ref childPos);
+
             return;
         }
 
