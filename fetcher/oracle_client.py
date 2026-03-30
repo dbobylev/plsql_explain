@@ -7,6 +7,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Ensure Oracle returns UTF-8 text in thick mode (Oracle Instant Client).
+# Without this, Cyrillic characters from CL8MSWIN1251/CL8ISO8859P5 databases
+# may be returned as garbled bytes.
+os.environ.setdefault("NLS_LANG", ".AL32UTF8")
+
 
 def _connect() -> oracledb.Connection:
     return oracledb.connect(
@@ -54,6 +59,8 @@ def fetch_objects(
                     current_key = key
                     lines = []
 
+                if isinstance(line_text, bytes):
+                    line_text = line_text.decode("utf-8", errors="replace")
                 lines.append(line_text or "")
 
             if current_key is not None and lines:
