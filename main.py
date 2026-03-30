@@ -5,11 +5,22 @@ import sys
 def cmd_summarize(args: argparse.Namespace) -> None:
     from dotenv import load_dotenv
     load_dotenv()
-    import sqlite3
+    import logging
     import os
+    import sqlite3
+    from datetime import datetime
     from traversal.graph import build_tree
     from summarizer.llm_client import LlmClient
     from summarizer.engine import summarize_node
+
+    os.makedirs("logs", exist_ok=True)
+    log_path = os.path.join("logs", f"summarize_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+    handler = logging.FileHandler(log_path, encoding="utf-8")
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    llm_logger = logging.getLogger("summarizer.llm_client")
+    llm_logger.setLevel(logging.DEBUG)
+    llm_logger.addHandler(handler)
 
     db_path = os.environ.get("SQLITE_PATH", "./data/plsql.db")
     conn = sqlite3.connect(db_path)
@@ -23,6 +34,7 @@ def cmd_summarize(args: argparse.Namespace) -> None:
         use_substatements=not args.no_substatements,
     )
     conn.close()
+    handler.close()
     print(summary)
 
 

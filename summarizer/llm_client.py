@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import logging
 import os
+
+_logger = logging.getLogger(__name__)
 
 
 class LlmClient:
@@ -15,6 +18,11 @@ class LlmClient:
         self._client = openai.OpenAI(base_url=base_url, api_key=api_key)
 
     def complete(self, system: str, user: str) -> str:
+        _logger.debug(
+            "[PROMPT]\n--- SYSTEM ---\n%s\n--- USER ---\n%s\n--- END ---",
+            system,
+            user,
+        )
         response = self._client.chat.completions.create(
             model=self._model,
             messages=[
@@ -22,4 +30,6 @@ class LlmClient:
                 {"role": "user", "content": user},
             ],
         )
-        return response.choices[0].message.content or ""
+        result = response.choices[0].message.content or ""
+        _logger.debug("[RESPONSE]\n%s\n--- END ---", result)
+        return result
