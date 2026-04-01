@@ -291,7 +291,12 @@ def _classic_summarize(
     summary_kind: str,
 ) -> str:
     """Classic single-call summarization using full source fragment."""
-    source_text = sqlite_store.get_source_text(conn, node.schema_name, node.object_name) or ""
+    source_text = sqlite_store.get_source_text(
+        conn,
+        node.schema_name,
+        node.object_name,
+        node.object_type,
+    ) or ""
     if node.subprogram:
         fragment = extractor.extract_subprogram(source_text, node.subprogram)
     else:

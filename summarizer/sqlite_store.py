@@ -14,11 +14,33 @@ def get_source_text(
     conn: sqlite3.Connection,
     schema: str,
     name: str,
+    obj_type: Optional[str] = None,
 ) -> Optional[str]:
-    row = conn.execute(
-        "SELECT source_text FROM object_source WHERE schema_name=? AND object_name=?",
-        (schema.upper(), name.upper()),
-    ).fetchone()
+    if obj_type is None:
+        row = conn.execute(
+            """
+            SELECT source_text
+            FROM object_source
+            WHERE schema_name=? AND object_name=?
+            ORDER BY CASE
+                         WHEN object_type LIKE '% BODY' THEN 0
+                         WHEN object_type IN ('PACKAGE', 'TYPE') THEN 1
+                         ELSE 2
+                     END,
+                     object_type
+            LIMIT 1
+            """,
+            (schema.upper(), name.upper()),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            """
+            SELECT source_text
+            FROM object_source
+            WHERE schema_name=? AND object_name=? AND object_type=?
+            """,
+            (schema.upper(), name.upper(), obj_type.upper()),
+        ).fetchone()
     return row[0] if row else None
 
 

@@ -52,7 +52,7 @@ def build_tree(
             error_message=None,
         )
 
-    info = sqlite_store.get_object_info(conn, schema, object_name)
+    info = sqlite_store.get_object_info(conn, schema, object_name, subprogram)
     if info is None:
         _logger.debug("build_tree missing object: schema=%s, object=%s", schema, object_name)
         return DependencyNode(
@@ -91,7 +91,7 @@ def build_tree(
 
     _in_stack.add(key)
 
-    accesses = sqlite_store.get_table_accesses(conn, schema, object_name, subprogram)
+    accesses = sqlite_store.get_table_accesses(conn, schema, object_name, object_type, subprogram)
     _logger.debug(
         "build_tree table accesses loaded: schema=%s, object=%s, subprogram=%s, count=%d",
         schema,
@@ -119,7 +119,7 @@ def build_tree(
             table_accesses=accesses,
         )
 
-    edges = sqlite_store.get_call_edges(conn, schema, object_name, subprogram)
+    edges = sqlite_store.get_call_edges(conn, schema, object_name, object_type, subprogram)
     _logger.debug(
         "build_tree call edges loaded: schema=%s, object=%s, subprogram=%s, count=%d",
         schema,

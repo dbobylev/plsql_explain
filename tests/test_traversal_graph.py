@@ -230,6 +230,33 @@ def test_subprogram_filter(mem_conn: sqlite3.Connection) -> None:
     assert node_y.children[0].object_name == "PKG_C"
 
 
+def test_subprogram_prefers_package_body_over_spec(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "S", "PKG_A", "PACKAGE")
+    _insert_parse_result(mem_conn, "S", "PKG_A", "PACKAGE")
+    _insert_source(mem_conn, "S", "PKG_A", "PACKAGE BODY")
+    _insert_parse_result(mem_conn, "S", "PKG_A", "PACKAGE BODY")
+    _insert_source(mem_conn, "S", "PKG_B")
+    _insert_parse_result(mem_conn, "S", "PKG_B")
+
+    mem_conn.execute(
+        """
+        INSERT INTO subprogram
+            (schema_name, object_name, object_type, subprogram_name, subprogram_type,
+             start_line, end_line, source_text, source_hash)
+        VALUES ('S', 'PKG_A', 'PACKAGE BODY', 'PROC_X', 'PROCEDURE', 1, 5, 'body', 'hash_body')
+        """
+    )
+    mem_conn.commit()
+
+    _insert_call_edge(mem_conn, "S", "PKG_A", "PACKAGE BODY", "PROC_X", "PKG_B")
+
+    node = build_tree(mem_conn, "S", "PKG_A", subprogram="PROC_X")
+
+    assert node.object_type == "PACKAGE BODY"
+    assert len(node.children) == 1
+    assert node.children[0].object_name == "PKG_B"
+
+
 # ── Depth-limiting tests ────────────────────────────────────────────────────
 
 def test_max_depth_zero_no_children(mem_conn: sqlite3.Connection) -> None:

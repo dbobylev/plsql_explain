@@ -388,6 +388,19 @@ def test_no_substatements_flag_skips_chunks(mem_conn: sqlite3.Connection) -> Non
     client.complete.assert_called_once()
 
 
+def test_classic_summary_loads_source_by_object_type(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "PKG_A")
+    _insert_parse_result(mem_conn, "PKG_A")
+    node = _ok_node("PKG_A", subprogram="PROC1")
+    client = _make_client("суммари")
+
+    with patch("summarizer.engine.sqlite_store.get_source_text", return_value="body") as get_source_text:
+        result = summarize_node(mem_conn, node, client, use_substatements=False, force=True)
+
+    assert result == "суммари"
+    get_source_text.assert_called_once_with(mem_conn, "S", "PKG_A", "PACKAGE BODY")
+
+
 def test_chunk_cache_reused(mem_conn: sqlite3.Connection) -> None:
     """Cached chunk analyses are reused on second run."""
     _insert_source(mem_conn, "PKG_CACHE")
