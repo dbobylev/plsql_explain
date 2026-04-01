@@ -55,6 +55,9 @@ def parse_object(
     returns a ParseOutput dataclass.
     Raises ParserError on subprocess failure or JSON decode failure.
     """
+    if source_text and not source_text.endswith('\n'):
+        source_text += '\n'
+
     input_payload = json.dumps(
         {
             "schema_name": schema_name,
