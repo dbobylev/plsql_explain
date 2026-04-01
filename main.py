@@ -43,14 +43,17 @@ def cmd_explain(args: argparse.Namespace) -> None:
     load_dotenv()
     import sqlite3
     import os
-    from traversal.graph import build_tree, print_tree
+    from traversal.graph import build_tree, print_tree, print_tree_verbose
 
     db_path = os.environ.get("SQLITE_PATH", "./data/plsql.db")
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     node = build_tree(conn, args.schema, args.object, args.subprogram or None, max_depth=args.depth)
     conn.close()
-    print_tree(node)
+    if args.verbose:
+        print_tree_verbose(node)
+    else:
+        print_tree(node)
 
 
 def cmd_fetch(args: argparse.Namespace) -> None:
@@ -75,6 +78,8 @@ def cmd_parse(args: argparse.Namespace) -> None:
 
 
 def cmd_debug(args: argparse.Namespace) -> None:
+    from dotenv import load_dotenv
+    load_dotenv()
     from parser.debug import run
     run(args)
 
@@ -113,6 +118,7 @@ def build_parser() -> argparse.ArgumentParser:
     explain_parser.add_argument("--object", required=True, help="Имя объекта (пакет, процедура, функция)")
     explain_parser.add_argument("--subprogram", default=None, help="Имя подпрограммы внутри пакета (опционально)")
     explain_parser.add_argument("--depth", type=int, default=None, help="Максимальная глубина обхода зависимостей")
+    explain_parser.add_argument("--verbose", "-v", action="store_true", help="Подробный вывод: схема, тип, ошибки, обращения к таблицам")
     explain_parser.set_defaults(func=cmd_explain)
 
     debug_parser = subparsers.add_parser("debug", help="Запустить C# парсер на произвольном PL/SQL и изучить результат")

@@ -180,11 +180,14 @@ public partial class PlsqlVisitor
 
             int branchPos = 0;
 
-            // THEN body: statements go directly under ifSeq (no IF_THEN wrapper)
             var thenStmts = ifStmt.seq_of_statements();
             if (thenStmts != null)
-                foreach (var stmt in thenStmts.statement())
-                    ExtractStatement(stmt, subprogram, ifSeq, ref branchPos);
+            {
+                AddSubstatement(subprogram, ifSeq, ref branchPos, GetSourceText(thenStmts),
+                    "IF_THEN", thenStmts.Start.Line, thenStmts.Stop?.Line ?? thenStmts.Start.Line,
+                    out int thenSeq);
+                ExtractSeqStatements(thenStmts, subprogram, thenSeq);
+            }
 
             // ELSIF branches
             foreach (var elsif in ifStmt.elsif_part())
