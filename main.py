@@ -1,6 +1,11 @@
+from __future__ import annotations
+
 import argparse
 import logging
 import os
+import re
+from datetime import datetime
+from pathlib import Path
 
 from app_logging import (
     LOG_LEVEL_NAMES,
@@ -11,6 +16,47 @@ from app_logging import (
 )
 
 _logger = logging.getLogger(__name__)
+SUMMARY_OUTPUT_DIR = "rusult_summary"
+SUMMARY_ROOT_LABEL = "root"
+
+
+def _sanitize_filename_component(value: str) -> str:
+    normalized = re.sub(r"[^0-9A-Za-z_.-]+", "_", value.strip().lower())
+    return normalized.strip("._") or "unknown"
+
+
+def build_summary_filename(args: argparse.Namespace, timestamp: datetime | None = None) -> str:
+    timestamp = timestamp or datetime.now().astimezone()
+    program_name = args.subprogram or SUMMARY_ROOT_LABEL
+    parts = [
+        "summary",
+        _sanitize_filename_component(args.schema),
+        _sanitize_filename_component(args.object),
+        _sanitize_filename_component(program_name),
+        timestamp.strftime("%Y%m%d_%H%M%S"),
+    ]
+    return "_".join(parts) + ".md"
+
+
+def build_summary_path(
+    args: argparse.Namespace,
+    output_dir: str | Path = SUMMARY_OUTPUT_DIR,
+    timestamp: datetime | None = None,
+) -> Path:
+    return Path(output_dir) / build_summary_filename(args, timestamp=timestamp)
+
+
+def write_summary_output(
+    args: argparse.Namespace,
+    summary: str,
+    output_dir: str | Path = SUMMARY_OUTPUT_DIR,
+    timestamp: datetime | None = None,
+) -> Path:
+    summary_path = build_summary_path(args, output_dir=output_dir, timestamp=timestamp)
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text(summary, encoding="utf-8")
+    _logger.debug("Summary written to %s", summary_path)
+    return summary_path
 
 
 def cmd_summarize(args: argparse.Namespace) -> None:
@@ -45,6 +91,7 @@ def cmd_summarize(args: argparse.Namespace) -> None:
         )
     finally:
         conn.close()
+    write_summary_output(args, summary)
     _logger.info(summary)
 
 

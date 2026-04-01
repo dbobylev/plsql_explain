@@ -164,6 +164,9 @@ python main.py summarize --schema MYSCHEMA --object PKG_ORDERS --no-substatement
 python main.py summarize --schema MYSCHEMA --object PKG_ORDERS --force
 ```
 
+Финальное summary автоматически сохраняется в Markdown-файл в папку `rusult_summary/`.
+Шаблон имени: `summary_<schema>_<object>_<subprogram|root>_<timestamp>.md`
+
 #### Режимы суммаризации
 
 | Флаг | Описание |

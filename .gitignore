@@ -4,6 +4,7 @@
 # Data
 data/
 *.db
+rusult_summary/
 
 # Python
 __pycache__/
