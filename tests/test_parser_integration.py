@@ -354,3 +354,37 @@ def test_same_package_subprogram_called_from_different_schemas_are_not_deduplica
     assert ("SCHEMA_B", "SHARED_PKG", "DO_WORK") in edges
     assert ("SCHEMA_C", "CALC_PKG", "GET_VALUE") in edges
     assert len(edges) == 3
+
+
+# ---------------------------------------------------------------------------
+# XMLTABLE PATH
+# ---------------------------------------------------------------------------
+
+_XMLTABLE_PATH_NO_TYPE = """\
+select 1 from xmltable('/xx' passing vXML columns Prtry PATH '/yy')
+"""
+
+_XMLTABLE_PATH_WITH_TYPE = """\
+select x.Prtry, x.Amt
+  from xmltable('/root' passing vXML
+         columns Prtry    VARCHAR2(100) PATH '/Prtry',
+                 Amt      NUMBER        PATH '/Amt'   DEFAULT 0) x
+"""
+
+
+@requires_binary
+def test_xmltable_path_without_type_no_parse_errors():
+    """XMLTABLE column with PATH but no explicit datatype must parse without errors."""
+    out = parse_object("S", "T", "PACKAGE BODY", _XMLTABLE_PATH_NO_TYPE)
+
+    assert out.status == "ok", f"Expected ok, got {out.status!r}: {out.error_message}"
+    assert not out.error_message
+
+
+@requires_binary
+def test_xmltable_path_with_type_no_parse_errors():
+    """XMLTABLE column with explicit datatype and PATH must parse without errors."""
+    out = parse_object("S", "T", "PACKAGE BODY", _XMLTABLE_PATH_WITH_TYPE)
+
+    assert out.status == "ok", f"Expected ok, got {out.status!r}: {out.error_message}"
+    assert not out.error_message

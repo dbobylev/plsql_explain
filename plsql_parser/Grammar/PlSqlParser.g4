@@ -7116,7 +7116,9 @@ xml_namespaces_clause
     ;
 
 xml_table_column
-    : xml_column_name (FOR ORDINALITY | type_spec (PATH concatenation)? xml_general_default_part?)
+    : xml_column_name FOR ORDINALITY
+    | xml_column_name PATH concatenation xml_general_default_part?
+    | xml_column_name type_spec (PATH concatenation)? xml_general_default_part?
     ;
 
 xml_general_default_part
