@@ -22,6 +22,7 @@ ORACLE_USER=user
 ORACLE_PASSWORD=password
 SQLITE_PATH=./data/plsql.db
 PLSQL_PARSER_PATH=./plsql_parser/bin/Release/net8.0/PlsqlParser
+PARSER_TIMEOUT_SECONDS=600
 LLM_BASE_URL=http://corporate-llm/v1
 LLM_API_KEY=your_key_here
 LLM_MODEL=gpt-4o

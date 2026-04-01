@@ -78,6 +78,8 @@ def cmd_parse(args: argparse.Namespace) -> None:
 
 
 def cmd_debug(args: argparse.Namespace) -> None:
+    from dotenv import load_dotenv
+    load_dotenv()
     from parser.debug import run
     run(args)
 

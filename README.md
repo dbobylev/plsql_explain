@@ -42,6 +42,7 @@ cp .env.example .env  # заполнить параметры подключен
 | `ORACLE_PASSWORD` | Пароль Oracle |
 | `SQLITE_PATH` | Путь к SQLite-базе, например `./data/plsql.db` |
 | `PLSQL_PARSER_PATH` | Путь к скомпилированному C#-бинарнику парсера |
+| `PARSER_TIMEOUT_SECONDS` | Таймаут запуска C#-парсера в секундах, по умолчанию `600` |
 | `LLM_BASE_URL` | URL OpenAI-совместимого API, например `http://corporate-llm/v1` |
 | `LLM_API_KEY` | API-ключ LLM |
 | `LLM_MODEL` | Имя модели, например `gpt-4o` |

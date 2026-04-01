@@ -86,6 +86,28 @@ def test_timeout_raises_parser_error():
             parse_object("S", "PKG_X", "PACKAGE BODY", "src")
 
 
+def test_default_timeout_comes_from_env():
+    with patch.dict("os.environ", {"PARSER_TIMEOUT_SECONDS": "600"}, clear=False):
+        with patch("subprocess.run", return_value=_make_result(OK_PAYLOAD)) as run_mock:
+            parse_object("S", "PKG_A", "PACKAGE BODY", "source")
+
+    assert run_mock.call_args.kwargs["timeout"] == 600
+
+
+def test_explicit_timeout_overrides_env():
+    with patch.dict("os.environ", {"PARSER_TIMEOUT_SECONDS": "600"}, clear=False):
+        with patch("subprocess.run", return_value=_make_result(OK_PAYLOAD)) as run_mock:
+            parse_object("S", "PKG_A", "PACKAGE BODY", "source", timeout=42)
+
+    assert run_mock.call_args.kwargs["timeout"] == 42
+
+
+def test_invalid_timeout_env_raises_parser_error():
+    with patch.dict("os.environ", {"PARSER_TIMEOUT_SECONDS": "oops"}, clear=False):
+        with pytest.raises(ParserError, match="Invalid PARSER_TIMEOUT_SECONDS"):
+            parse_object("S", "PKG_X", "PACKAGE BODY", "src")
+
+
 def test_binary_not_found_raises_parser_error():
     with patch("subprocess.run", side_effect=FileNotFoundError):
         with pytest.raises(ParserError, match="not found"):

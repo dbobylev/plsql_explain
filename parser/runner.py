@@ -7,6 +7,8 @@ import sys
 
 from parser.models import CallEdge, ParseOutput, SubprogramInfo, SubstatementInfo, TableAccess
 
+_DEFAULT_PARSER_TIMEOUT_SECONDS = 600
+
 
 class ParserError(Exception):
     """Raised when the C# binary exits with non-zero or produces invalid JSON."""
@@ -43,12 +45,32 @@ def _subprocess_env() -> dict:
     return env
 
 
+def _parser_timeout_seconds() -> int:
+    raw = os.environ.get("PARSER_TIMEOUT_SECONDS")
+    if raw is None:
+        return _DEFAULT_PARSER_TIMEOUT_SECONDS
+
+    try:
+        timeout = int(raw)
+    except ValueError as e:
+        raise ParserError(
+            f"Invalid PARSER_TIMEOUT_SECONDS value: {raw!r}. Expected integer seconds."
+        ) from e
+
+    if timeout <= 0:
+        raise ParserError(
+            f"Invalid PARSER_TIMEOUT_SECONDS value: {raw!r}. Expected positive integer seconds."
+        )
+
+    return timeout
+
+
 def parse_object(
     schema_name: str,
     object_name: str,
     object_type: str,
     source_text: str,
-    timeout: int = 60,
+    timeout: int | None = None,
 ) -> ParseOutput:
     """
     Invokes the C# parser binary via subprocess, passes the object via stdin as JSON,
@@ -57,6 +79,8 @@ def parse_object(
     """
     if source_text and not source_text.endswith('\n'):
         source_text += '\n'
+
+    timeout = _parser_timeout_seconds() if timeout is None else timeout
 
     input_payload = json.dumps(
         {
