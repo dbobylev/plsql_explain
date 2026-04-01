@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
 from typing import Optional
 
@@ -18,6 +19,13 @@ _STUB_STATUSES = {"missing", "cycle", "wrapped", "error", "unindexed"}
 
 # Methods with total source below this threshold use the classic single-call path.
 _SUBSTATEMENT_THRESHOLD_CHARS = 4000
+_logger = logging.getLogger(__name__)
+
+
+def _node_ref(node: DependencyNode) -> str:
+    if node.subprogram:
+        return f"{node.schema_name}.{node.object_name}.{node.subprogram}"
+    return f"{node.schema_name}.{node.object_name}"
 
 
 def _stub_summary(node: DependencyNode) -> str:
@@ -52,7 +60,19 @@ def summarize_node(
     if _cache is None:
         _cache = {}
 
+    _logger.debug(
+        "summarize_node started: node=%s, status=%s, children=%d, force=%s, summary_kind=%s, use_substatements=%s, cache_entries=%d",
+        _node_ref(node),
+        node.status,
+        len(node.children),
+        force,
+        summary_kind,
+        use_substatements,
+        len(_cache),
+    )
+
     if node.status in _STUB_STATUSES:
+        _logger.debug("Returning stub summary: node=%s, status=%s", _node_ref(node), node.status)
         return _stub_summary(node)
 
     # Post-order: summarize all children first (always as "brief")
@@ -60,11 +80,22 @@ def summarize_node(
     for child in node.children:
         key = (child.object_name, child.subprogram)
         if key not in _cache:
+            _logger.debug(
+                "Summarizing child node: parent=%s, child=%s",
+                _node_ref(node),
+                _node_ref(child),
+            )
             _cache[key] = summarize_node(
                 conn, child, client, force,
                 summary_kind="brief",
                 use_substatements=use_substatements,
                 _cache=_cache,
+            )
+        else:
+            _logger.debug(
+                "Reusing in-memory child summary cache: parent=%s, child=%s",
+                _node_ref(node),
+                _node_ref(child),
             )
         child_summaries[key] = _cache[key]
 
@@ -72,13 +103,30 @@ def summarize_node(
     current_hash = sqlite_store.get_source_hash(
         conn, node.schema_name, node.object_name, node.object_type or ""
     )
+    _logger.debug(
+        "Loaded source hash: node=%s, has_hash=%s",
+        _node_ref(node),
+        bool(current_hash),
+    )
     if not force and current_hash:
         cached = sqlite_store.get_summary(
             conn, node.schema_name, node.object_name, node.object_type or "",
             node.subprogram, summary_kind,
         )
         if cached and cached[0] == current_hash:
+            _logger.debug(
+                "Summary cache hit: node=%s, summary_kind=%s, summary_length=%d",
+                _node_ref(node),
+                summary_kind,
+                len(cached[1]),
+            )
             return cached[1]
+        _logger.debug(
+            "Summary cache miss: node=%s, summary_kind=%s, cached_hash_matches=%s",
+            _node_ref(node),
+            summary_kind,
+            bool(cached and cached[0] == current_hash),
+        )
 
     # Try substatement-based analysis
     if use_substatements:
@@ -86,12 +134,25 @@ def summarize_node(
             conn, node, client, child_summaries, summary_kind, force,
         )
         if summary is not None:
+            _logger.debug(
+                "Substatement path produced summary: node=%s, summary_kind=%s, summary_length=%d",
+                _node_ref(node),
+                summary_kind,
+                len(summary),
+            )
             _persist_summary(conn, node, current_hash, summary, summary_kind)
             return summary
 
     # Classic path: full source fragment
+    _logger.debug("Falling back to classic summary path: node=%s", _node_ref(node))
     summary = _classic_summarize(conn, node, client, child_summaries, summary_kind)
     _persist_summary(conn, node, current_hash, summary, summary_kind)
+    _logger.debug(
+        "summarize_node completed: node=%s, summary_kind=%s, summary_length=%d",
+        _node_ref(node),
+        summary_kind,
+        len(summary),
+    )
     return summary
 
 
@@ -112,14 +173,32 @@ def _try_substatement_path(
         node.object_type or "", node.subprogram,
     )
     if not roots:
+        _logger.debug("Substatement path skipped: node=%s, reason=no_substatements", _node_ref(node))
         return None
 
-    if total_source_length(roots) < _SUBSTATEMENT_THRESHOLD_CHARS:
+    total_length = total_source_length(roots)
+    _logger.debug(
+        "Loaded substatement tree: node=%s, roots=%d, total_source_length=%d, threshold=%d, force=%s",
+        _node_ref(node),
+        len(roots),
+        total_length,
+        _SUBSTATEMENT_THRESHOLD_CHARS,
+        force,
+    )
+    if total_length < _SUBSTATEMENT_THRESHOLD_CHARS:
+        _logger.debug(
+            "Substatement path skipped: node=%s, reason=below_threshold, total_source_length=%d",
+            _node_ref(node),
+            total_length,
+        )
         return None
 
     chunks = chunk_substatements(roots)
     if not chunks:
+        _logger.debug("Substatement path skipped: node=%s, reason=no_chunks", _node_ref(node))
         return None
+
+    _logger.debug("Prepared chunked analysis: node=%s, chunks=%d", _node_ref(node), len(chunks))
 
     # Analyze chunks sequentially with context flow.
     # Chunk cache uses hash-based invalidation (independent of force flag).
@@ -130,6 +209,14 @@ def _try_substatement_path(
 
     for i, chunk in enumerate(chunks):
         c_hash = compute_chunk_hash(chunk)
+        _logger.debug(
+            "Processing chunk: node=%s, chunk_index=%d, roots_in_chunk=%d, chunk_hash=%s, invalidated=%s",
+            _node_ref(node),
+            i,
+            len(chunk),
+            c_hash,
+            invalidated,
+        )
 
         # Check chunk cache (hash-based, not affected by force)
         analysis: Optional[str] = None
@@ -140,8 +227,21 @@ def _try_substatement_path(
             )
             if cached and cached[0] == c_hash:
                 analysis = cached[1]
+                _logger.debug(
+                    "Chunk cache hit: node=%s, chunk_index=%d, analysis_length=%d",
+                    _node_ref(node),
+                    i,
+                    len(analysis),
+                )
 
         if analysis is None:
+            _logger.debug(
+                "Chunk cache miss: node=%s, chunk_index=%d, context_length=%d, child_summaries=%d",
+                _node_ref(node),
+                i,
+                len(context),
+                len(child_summaries),
+            )
             system, user = prompts.build_chunk_prompt(
                 node, chunk, context, child_summaries,
             )
@@ -152,9 +252,21 @@ def _try_substatement_path(
                 i, c_hash, analysis,
             )
             invalidated = True  # subsequent chunks depend on this context
+            _logger.debug(
+                "Chunk analysis saved: node=%s, chunk_index=%d, analysis_length=%d",
+                _node_ref(node),
+                i,
+                len(analysis),
+            )
 
         chunk_analyses.append(analysis)
         context = analysis if len(chunk_analyses) == 1 else context + "\n\n" + analysis
+        _logger.debug(
+            "Chunk context updated: node=%s, chunk_index=%d, context_length=%d",
+            _node_ref(node),
+            i,
+            len(context),
+        )
 
     # Final aggregation
     if summary_kind == "detailed":
@@ -162,6 +274,12 @@ def _try_substatement_path(
     else:
         system, user = prompts.build_brief_aggregation_prompt(node, chunk_analyses)
 
+    _logger.debug(
+        "Running aggregation prompt: node=%s, summary_kind=%s, analyses=%d",
+        _node_ref(node),
+        summary_kind,
+        len(chunk_analyses),
+    )
     return client.complete(system, user)
 
 
@@ -178,6 +296,15 @@ def _classic_summarize(
         fragment = extractor.extract_subprogram(source_text, node.subprogram)
     else:
         fragment = source_text
+
+    _logger.debug(
+        "Classic summary prepared: node=%s, source_length=%d, fragment_length=%d, child_summaries=%d, summary_kind=%s",
+        _node_ref(node),
+        len(source_text),
+        len(fragment),
+        len(child_summaries),
+        summary_kind,
+    )
 
     if summary_kind == "detailed":
         # For detailed mode without substatements, use a richer prompt
@@ -209,8 +336,20 @@ def _persist_summary(
 ) -> None:
     """Persist summary to SQLite cache if hash is available."""
     if current_hash:
+        _logger.debug(
+            "Persisting summary: node=%s, summary_kind=%s, hash=%s, summary_length=%d",
+            _node_ref(node),
+            summary_kind,
+            current_hash,
+            len(summary),
+        )
         sqlite_store.upsert_summary(
             conn, node.schema_name, node.object_name,
             node.object_type or "", node.subprogram,
             current_hash, summary, summary_kind,
+        )
+    else:
+        _logger.debug(
+            "Skipping summary persistence: node=%s, reason=no_source_hash",
+            _node_ref(node),
         )

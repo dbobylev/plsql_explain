@@ -19,17 +19,32 @@ class LlmClient:
 
     def complete(self, system: str, user: str) -> str:
         _logger.debug(
+            "LLM request started: model=%s, system_length=%d, user_length=%d",
+            self._model,
+            len(system),
+            len(user),
+        )
+        _logger.debug(
             "[PROMPT]\n--- SYSTEM ---\n%s\n--- USER ---\n%s\n--- END ---",
             system,
             user,
         )
-        response = self._client.chat.completions.create(
-            model=self._model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-        )
+        try:
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            )
+        except Exception:
+            _logger.exception("LLM request failed: model=%s", self._model)
+            raise
         result = response.choices[0].message.content or ""
+        _logger.debug(
+            "LLM response received: model=%s, content_length=%d",
+            self._model,
+            len(result),
+        )
         _logger.debug("[RESPONSE]\n%s\n--- END ---", result)
         return result

@@ -1,55 +1,74 @@
 import argparse
-import sys
+import logging
+import os
+
+from app_logging import (
+    LOG_LEVEL_NAMES,
+    configure_logging,
+    default_log_level,
+    ensure_logging_configured,
+    shutdown_logging,
+)
+
+_logger = logging.getLogger(__name__)
 
 
 def cmd_summarize(args: argparse.Namespace) -> None:
+    ensure_logging_configured(getattr(args, "log_level", None))
     from dotenv import load_dotenv
     load_dotenv()
-    import logging
-    import os
     import sqlite3
-    from datetime import datetime
     from traversal.graph import build_tree
     from summarizer.llm_client import LlmClient
     from summarizer.engine import summarize_node
 
-    os.makedirs("logs", exist_ok=True)
-    log_path = os.path.join("logs", f"summarize_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
-    handler = logging.FileHandler(log_path, encoding="utf-8")
-    handler.setLevel(logging.DEBUG)
-    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
-    llm_logger = logging.getLogger("summarizer.llm_client")
-    llm_logger.setLevel(logging.DEBUG)
-    llm_logger.addHandler(handler)
-
     db_path = os.environ.get("SQLITE_PATH", "./data/plsql.db")
+    _logger.debug(
+        "Суммаризация объекта: schema=%s, object=%s%s, kind=%s, force=%s, substatements=%s",
+        args.schema,
+        args.object,
+        f", subprogram={args.subprogram}" if args.subprogram else "",
+        args.kind,
+        args.force,
+        not args.no_substatements,
+    )
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    node = build_tree(conn, args.schema, args.object, args.subprogram or None, max_depth=args.depth)
-    client = LlmClient()
-    summary = summarize_node(
-        conn, node, client,
-        force=args.force,
-        summary_kind=args.kind,
-        use_substatements=not args.no_substatements,
-    )
-    conn.close()
-    handler.close()
-    print(summary)
+    try:
+        node = build_tree(conn, args.schema, args.object, args.subprogram or None, max_depth=args.depth)
+        client = LlmClient()
+        summary = summarize_node(
+            conn, node, client,
+            force=args.force,
+            summary_kind=args.kind,
+            use_substatements=not args.no_substatements,
+        )
+    finally:
+        conn.close()
+    _logger.info(summary)
 
 
 def cmd_explain(args: argparse.Namespace) -> None:
+    ensure_logging_configured(getattr(args, "log_level", None))
     from dotenv import load_dotenv
     load_dotenv()
     import sqlite3
-    import os
     from traversal.graph import build_tree, print_tree, print_tree_verbose
 
     db_path = os.environ.get("SQLITE_PATH", "./data/plsql.db")
+    _logger.debug(
+        "Построение дерева зависимостей: schema=%s, object=%s%s, verbose=%s",
+        args.schema,
+        args.object,
+        f", subprogram={args.subprogram}" if args.subprogram else "",
+        args.verbose,
+    )
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    node = build_tree(conn, args.schema, args.object, args.subprogram or None, max_depth=args.depth)
-    conn.close()
+    try:
+        node = build_tree(conn, args.schema, args.object, args.subprogram or None, max_depth=args.depth)
+    finally:
+        conn.close()
     if args.verbose:
         print_tree_verbose(node)
     else:
@@ -57,27 +76,38 @@ def cmd_explain(args: argparse.Namespace) -> None:
 
 
 def cmd_fetch(args: argparse.Namespace) -> None:
+    ensure_logging_configured(getattr(args, "log_level", None))
     from fetcher.sync import run
-    print(f"Загрузка исходников: schema={args.schema}" + (f", object={args.object}" if args.object else ""))
+
+    _logger.info(
+        "Загрузка исходников: schema=%s%s",
+        args.schema,
+        f", object={args.object}" if args.object else "",
+    )
     run(schema=args.schema, object_name=args.object)
     if args.parse:
         from indexer.sync import run as parse_run
-        print()
-        print("Запуск парсинга...")
+
+        _logger.info("")
+        _logger.info("Запуск парсинга...")
         parse_run(schema=args.schema, object_name=args.object)
 
 
 def cmd_parse(args: argparse.Namespace) -> None:
+    ensure_logging_configured(getattr(args, "log_level", None))
     from indexer.sync import run
-    print(
-        f"Парсинг объектов: schema={args.schema}"
-        + (f", object={args.object}" if args.object else "")
-        + (" [force]" if args.force else "")
+
+    _logger.info(
+        "Парсинг объектов: schema=%s%s%s",
+        args.schema,
+        f", object={args.object}" if args.object else "",
+        " [force]" if args.force else "",
     )
     run(schema=args.schema, object_name=args.object, force=args.force)
 
 
 def cmd_debug(args: argparse.Namespace) -> None:
+    ensure_logging_configured(getattr(args, "log_level", None))
     from dotenv import load_dotenv
     load_dotenv()
     from parser.debug import run
@@ -85,25 +115,45 @@ def cmd_debug(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    common_parser = argparse.ArgumentParser(add_help=False)
+    common_parser.add_argument(
+        "--log-level",
+        type=str.upper,
+        choices=LOG_LEVEL_NAMES,
+        default=default_log_level(),
+        help=f"Уровень логирования (по умолчанию: {default_log_level()})",
+    )
     parser = argparse.ArgumentParser(
         prog="plsql_explain",
         description="Инструмент для анализа PL/SQL кода Oracle",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    fetch_parser = subparsers.add_parser("fetch", help="Загрузить исходники из Oracle в SQLite")
+    fetch_parser = subparsers.add_parser(
+        "fetch",
+        parents=[common_parser],
+        help="Загрузить исходники из Oracle в SQLite",
+    )
     fetch_parser.add_argument("--schema", required=True, help="Имя схемы Oracle (например: MYSCHEMA)")
     fetch_parser.add_argument("--object", default=None, help="Имя конкретного объекта (опционально)")
     fetch_parser.add_argument("--parse", action="store_true", help="После загрузки сразу запустить парсинг")
     fetch_parser.set_defaults(func=cmd_fetch)
 
-    parse_parser = subparsers.add_parser("parse", help="Парсить PL/SQL объекты, обновить граф зависимостей")
+    parse_parser = subparsers.add_parser(
+        "parse",
+        parents=[common_parser],
+        help="Парсить PL/SQL объекты, обновить граф зависимостей",
+    )
     parse_parser.add_argument("--schema", required=True, help="Имя схемы Oracle")
     parse_parser.add_argument("--object", default=None, help="Имя конкретного объекта (опционально)")
     parse_parser.add_argument("--force", action="store_true", help="Перепарсить даже неизменённые объекты")
     parse_parser.set_defaults(func=cmd_parse)
 
-    summarize_parser = subparsers.add_parser("summarize", help="Иерархическая LLM-суммаризация объекта")
+    summarize_parser = subparsers.add_parser(
+        "summarize",
+        parents=[common_parser],
+        help="Иерархическая LLM-суммаризация объекта",
+    )
     summarize_parser.add_argument("--schema", required=True, help="Имя схемы Oracle")
     summarize_parser.add_argument("--object", required=True, help="Имя объекта")
     summarize_parser.add_argument("--subprogram", default=None, help="Имя подпрограммы внутри пакета (опционально)")
@@ -113,7 +163,11 @@ def build_parser() -> argparse.ArgumentParser:
     summarize_parser.add_argument("--force", action="store_true", help="Игнорировать кэш суммари")
     summarize_parser.set_defaults(func=cmd_summarize)
 
-    explain_parser = subparsers.add_parser("explain", help="Обход графа зависимостей и вывод дерева")
+    explain_parser = subparsers.add_parser(
+        "explain",
+        parents=[common_parser],
+        help="Обход графа зависимостей и вывод дерева",
+    )
     explain_parser.add_argument("--schema", required=True, help="Имя схемы Oracle")
     explain_parser.add_argument("--object", required=True, help="Имя объекта (пакет, процедура, функция)")
     explain_parser.add_argument("--subprogram", default=None, help="Имя подпрограммы внутри пакета (опционально)")
@@ -121,7 +175,11 @@ def build_parser() -> argparse.ArgumentParser:
     explain_parser.add_argument("--verbose", "-v", action="store_true", help="Подробный вывод: схема, тип, ошибки, обращения к таблицам")
     explain_parser.set_defaults(func=cmd_explain)
 
-    debug_parser = subparsers.add_parser("debug", help="Запустить C# парсер на произвольном PL/SQL и изучить результат")
+    debug_parser = subparsers.add_parser(
+        "debug",
+        parents=[common_parser],
+        help="Запустить C# парсер на произвольном PL/SQL и изучить результат",
+    )
     debug_parser.add_argument("--schema", default="DEBUG", help="Имя схемы (по умолчанию: DEBUG)")
     debug_parser.add_argument("--object", default="ANONYMOUS", help="Имя объекта (по умолчанию: ANONYMOUS)")
     debug_parser.add_argument("--type", dest="object_type", default="PACKAGE BODY", help='Тип объекта (по умолчанию: "PACKAGE BODY")')
@@ -138,7 +196,15 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    args.func(args)
+    session = configure_logging(args)
+    _logger.debug("Logging initialized: file=%s, level=%s", session.log_path, session.log_level)
+    try:
+        args.func(args)
+    except Exception:
+        _logger.exception("Команда завершилась ошибкой: %s", args.command)
+        raise
+    finally:
+        shutdown_logging()
 
 
 if __name__ == "__main__":

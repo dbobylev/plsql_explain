@@ -1,6 +1,7 @@
 """Tests for summarizer.engine.summarize_node."""
 from __future__ import annotations
 
+import logging
 import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
@@ -87,6 +88,21 @@ def test_leaf_node_calls_llm_once(mem_conn: sqlite3.Connection) -> None:
 
     assert result == "описание PKG_A"
     assert client.complete.call_count == 1
+
+
+def test_leaf_node_emits_debug_logs(mem_conn: sqlite3.Connection, caplog: pytest.LogCaptureFixture) -> None:
+    _insert_source(mem_conn, "PKG_A")
+    _insert_parse_result(mem_conn, "PKG_A")
+
+    node = _ok_node("PKG_A")
+    client = _make_client("описание PKG_A")
+
+    with caplog.at_level(logging.DEBUG):
+        summarize_node(mem_conn, node, client)
+
+    assert "summarize_node started: node=S.PKG_A" in caplog.text
+    assert "Classic summary prepared: node=S.PKG_A" in caplog.text
+    assert "Persisting summary: node=S.PKG_A" in caplog.text
 
 
 def test_cache_hit_skips_llm(mem_conn: sqlite3.Connection) -> None:

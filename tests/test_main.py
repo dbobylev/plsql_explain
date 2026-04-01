@@ -33,6 +33,7 @@ def test_parse_command_schema():
     assert args.schema == "MYSCHEMA"
     assert args.object is None
     assert args.force is False
+    assert args.log_level == "DEBUG"
 
 
 def test_parse_command_with_object_and_force():

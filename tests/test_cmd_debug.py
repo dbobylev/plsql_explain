@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import tempfile
+from pathlib import Path
 from typing import Optional
 from unittest.mock import patch
 
@@ -93,15 +95,26 @@ def test_cmd_debug_parser_error_exits(capsys):
     assert "binary not found" in capsys.readouterr().err
 
 
-def test_cmd_debug_source_file_read(tmp_path, capsys):
-    sql_file = tmp_path / "test.sql"
-    sql_file.write_text("BEGIN NULL; END;", encoding="utf-8")
-    args = build_parser().parse_args(["debug", "--source-file", str(sql_file)])
-    with patch("parser.runner.parse_object", return_value=_make_output()) as mock_parse:
-        cmd_debug(args)
-    mock_parse.assert_called_once()
-    _, _, _, source_text = mock_parse.call_args[0]
-    assert source_text == "BEGIN NULL; END;"
+def test_cmd_debug_source_file_read(capsys):
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".sql",
+        encoding="utf-8",
+        delete=False,
+        dir=Path.cwd(),
+    ) as tmp_file:
+        tmp_file.write("BEGIN NULL; END;")
+        sql_path = Path(tmp_file.name)
+
+    try:
+        args = build_parser().parse_args(["debug", "--source-file", str(sql_path)])
+        with patch("parser.runner.parse_object", return_value=_make_output()) as mock_parse:
+            cmd_debug(args)
+        mock_parse.assert_called_once()
+        _, _, _, source_text = mock_parse.call_args[0]
+        assert source_text == "BEGIN NULL; END;"
+    finally:
+        sql_path.unlink(missing_ok=True)
 
 
 def test_cmd_debug_missing_source_file_exits(capsys):

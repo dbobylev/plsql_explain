@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -8,6 +9,7 @@ import sys
 from parser.models import CallEdge, ParseOutput, SubprogramInfo, SubstatementInfo, TableAccess
 
 _DEFAULT_PARSER_TIMEOUT_SECONDS = 600
+_logger = logging.getLogger(__name__)
 
 
 class ParserError(Exception):
@@ -81,6 +83,14 @@ def parse_object(
         source_text += '\n'
 
     timeout = _parser_timeout_seconds() if timeout is None else timeout
+    _logger.debug(
+        "parser.run started: schema=%s, object=%s, type=%s, timeout=%s, source_length=%d",
+        schema_name,
+        object_name,
+        object_type,
+        timeout,
+        len(source_text),
+    )
 
     input_payload = json.dumps(
         {
@@ -103,15 +113,29 @@ def parse_object(
             env=_subprocess_env(),
         )
     except subprocess.TimeoutExpired as e:
+        _logger.exception(
+            "Parser timed out: schema=%s, object=%s, timeout=%s",
+            schema_name,
+            object_name,
+            timeout,
+        )
         raise ParserError(
             f"Parser timed out after {timeout}s for {schema_name}.{object_name}"
         ) from e
     except FileNotFoundError as e:
+        _logger.exception("Parser binary not found: %s", _parser_path())
         raise ParserError(
             f"Parser binary not found at: {_parser_path()}"
         ) from e
 
     if result.returncode != 0:
+        _logger.error(
+            "Parser exited with non-zero code: schema=%s, object=%s, returncode=%s, stderr=%s",
+            schema_name,
+            object_name,
+            result.returncode,
+            result.stderr.strip(),
+        )
         raise ParserError(
             f"Parser exited with code {result.returncode} for "
             f"{schema_name}.{object_name}. stderr: {result.stderr.strip()}"
@@ -120,9 +144,26 @@ def parse_object(
     try:
         data = json.loads(result.stdout)
     except json.JSONDecodeError as e:
+        _logger.exception(
+            "Parser returned invalid JSON: schema=%s, object=%s, stdout_length=%d",
+            schema_name,
+            object_name,
+            len(result.stdout),
+        )
         raise ParserError(
             f"Parser returned invalid JSON for {schema_name}.{object_name}: {e}"
         ) from e
+
+    _logger.debug(
+        "parser.run completed: schema=%s, object=%s, status=%s, call_edges=%d, table_accesses=%d, subprograms=%d, substatements=%d",
+        schema_name,
+        object_name,
+        data["status"],
+        len(data.get("call_edges", [])),
+        len(data.get("table_accesses", [])),
+        len(data.get("subprograms", [])),
+        len(data.get("substatements", [])),
+    )
 
     return ParseOutput(
         schema_name=data["schema_name"],
