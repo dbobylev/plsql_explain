@@ -134,6 +134,36 @@ def print_tree(node: DependencyNode, prefix: str = "", is_last: bool = True) -> 
         print_tree(child, child_prefix, is_child_last)
 
 
+def print_tree_verbose(node: DependencyNode, prefix: str = "", is_last: bool = True) -> None:
+    """Print a DependencyNode tree with full debug details per node."""
+    connector = "└── " if is_last else "├── "
+
+    # Header line: SCHEMA.OBJECT[.SUBPROGRAM] (TYPE) [STATUS]
+    if node.subprogram:
+        name = f"{node.schema_name}.{node.object_name}.{node.subprogram}"
+    else:
+        name = f"{node.schema_name}.{node.object_name}"
+    type_part = f" ({node.object_type})" if node.object_type else ""
+    header = f"{name}{type_part} [{node.status}]"
+    print(prefix + (connector if prefix else "") + header)
+
+    child_prefix = prefix + ("    " if is_last else "│   ")
+
+    # Error message
+    if node.error_message:
+        print(child_prefix + "  ! " + node.error_message)
+
+    # Table accesses
+    for a in node.table_accesses:
+        table_ref = f"{a.table_schema}.{a.table_name}" if a.table_schema else a.table_name
+        print(child_prefix + f"  TABLE: {table_ref} — {a.operation}")
+
+    # Children
+    for i, child in enumerate(node.children):
+        is_child_last = i == len(node.children) - 1
+        print_tree_verbose(child, child_prefix, is_child_last)
+
+
 def _node_label(node: DependencyNode) -> str:
     if node.subprogram:
         name = f"{node.object_name}.{node.subprogram}"
