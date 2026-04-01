@@ -7,7 +7,9 @@
       "Bash(pytest)",
       "Bash(dotnet build:*)",
       "Bash(python3 main.py debug --source-file ./tests/handstest/my_pkg.sql --output ./tests/handstest/my_pkg_report.txt)",
-      "Bash(grep -n \"Trim\\\\|Strip\" /Users/dmitrijbobylev/Documents/repos/plsql_explain/plsql_parser/Program.cs /Users/dmitrijbobylev/Documents/repos/plsql_explain/plsql_parser/Parser/*.cs)"
+      "Bash(grep -n \"Trim\\\\|Strip\" /Users/dmitrijbobylev/Documents/repos/plsql_explain/plsql_parser/Program.cs /Users/dmitrijbobylev/Documents/repos/plsql_explain/plsql_parser/Parser/*.cs)",
+      "Bash(python3:*)",
+      "Bash(python -m pytest tests/test_indexer_sync.py -v)"
     ]
   }
 }

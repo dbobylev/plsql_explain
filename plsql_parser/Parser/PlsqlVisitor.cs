@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Antlr4.Runtime;
 using Antlr4.Runtime.Misc;
+using Antlr4.Runtime.Tree;
 using PlsqlParser.Grammar;
 using PlsqlParser.Model;
 
@@ -78,6 +79,34 @@ public partial class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
         _callerType = callerType;
         _sourceText = sourceText;
         _subprogramStack.Push(null);
+    }
+
+    public override object? Visit(IParseTree tree)
+    {
+        return tree switch
+        {
+            PlSqlParser.Procedure_bodyContext ctx => VisitProcedure_body(ctx),
+            PlSqlParser.Function_bodyContext ctx => VisitFunction_body(ctx),
+            PlSqlParser.Create_procedure_bodyContext ctx => VisitCreate_procedure_body(ctx),
+            PlSqlParser.Create_function_bodyContext ctx => VisitCreate_function_body(ctx),
+            PlSqlParser.Call_statementContext ctx => VisitCall_statement(ctx),
+            PlSqlParser.General_elementContext ctx => VisitGeneral_element(ctx),
+            PlSqlParser.Select_statementContext ctx => VisitSelect_statement(ctx),
+            PlSqlParser.Insert_statementContext ctx => VisitInsert_statement(ctx),
+            PlSqlParser.Update_statementContext ctx => VisitUpdate_statement(ctx),
+            PlSqlParser.Delete_statementContext ctx => VisitDelete_statement(ctx),
+            PlSqlParser.Merge_statementContext ctx => VisitMerge_statement(ctx),
+            PlSqlParser.Dml_table_expression_clauseContext ctx => VisitDml_table_expression_clause(ctx),
+            _ => base.Visit(tree),
+        };
+    }
+
+    public override object? VisitChildren(IRuleNode node)
+    {
+        for (int i = 0; i < node.ChildCount; i++)
+            Visit(node.GetChild(i));
+
+        return null;
     }
 
     // ── Subprogram boundary tracking ────────────────────────────────────────
