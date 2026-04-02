@@ -101,35 +101,28 @@ CREATE TABLE IF NOT EXISTS substatement (
     UNIQUE(schema_name, object_name, object_type, subprogram, seq)
 );
 
-CREATE TABLE IF NOT EXISTS summary (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    schema_name    TEXT NOT NULL,
-    object_name    TEXT NOT NULL,
-    object_type    TEXT NOT NULL,
-    subprogram     TEXT NOT NULL DEFAULT '',
-    summary_kind   TEXT NOT NULL DEFAULT 'brief',
-    source_hash    TEXT NOT NULL,
-    summary_text   TEXT NOT NULL,
-    summarized_at  TEXT NOT NULL,
-    UNIQUE(schema_name, object_name, object_type, subprogram, summary_kind)
-);
+DROP TABLE IF EXISTS summary;
 
 DROP TABLE IF EXISTS chunk_analysis;
+DROP TABLE IF EXISTS analysis_cache;
 
-CREATE TABLE IF NOT EXISTS analysis_cache (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    schema_name      TEXT NOT NULL,
-    object_name      TEXT NOT NULL,
-    object_type      TEXT NOT NULL,
-    subprogram       TEXT NOT NULL DEFAULT '',
-    unit_key         TEXT NOT NULL,
-    unit_kind        TEXT NOT NULL,
-    summary_kind     TEXT NOT NULL,
-    planner_version  TEXT NOT NULL,
-    prompt_version   TEXT NOT NULL,
-    unit_hash        TEXT NOT NULL,
-    analysis_text    TEXT NOT NULL,
-    analyzed_at      TEXT NOT NULL,
-    UNIQUE(schema_name, object_name, object_type, subprogram,
-           unit_key, unit_kind, summary_kind, planner_version, prompt_version)
+CREATE TABLE IF NOT EXISTS node_description (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    schema_name     TEXT NOT NULL,
+    object_name     TEXT NOT NULL,
+    object_type     TEXT NOT NULL,
+    subprogram      TEXT NOT NULL DEFAULT '',
+    node_id         TEXT NOT NULL,
+    node_kind       TEXT NOT NULL,
+    statement_type  TEXT NOT NULL DEFAULT '',
+    title           TEXT NOT NULL DEFAULT '',
+    start_line      INTEGER NOT NULL DEFAULT 0,
+    end_line        INTEGER NOT NULL DEFAULT 0,
+    parent_node_id  TEXT,
+    position        INTEGER NOT NULL DEFAULT 0,
+    source_hash     TEXT NOT NULL,
+    description     TEXT NOT NULL,
+    prompt_version  TEXT NOT NULL,
+    described_at    TEXT NOT NULL,
+    UNIQUE(schema_name, object_name, object_type, subprogram, node_id, prompt_version)
 );

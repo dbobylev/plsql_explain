@@ -64,35 +64,35 @@ def cmd_summarize(args: argparse.Namespace) -> None:
     from dotenv import load_dotenv
     load_dotenv()
     import sqlite3
-    from traversal.graph import build_tree
     from summarizer.llm_client import LlmClient
-    from summarizer.engine import summarize_node
+    from summarizer.tree_describer import describe_tree, render_tree
 
     db_path = os.environ.get("SQLITE_PATH", "./data/plsql.db")
     _logger.debug(
-        "Суммаризация объекта: schema=%s, object=%s%s, kind=%s, force=%s, substatements=%s",
+        "Суммаризация объекта: schema=%s, object=%s%s, force=%s",
         args.schema,
         args.object,
         f", subprogram={args.subprogram}" if args.subprogram else "",
-        args.kind,
         args.force,
-        not args.no_substatements,
     )
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        node = build_tree(conn, args.schema, args.object, args.subprogram or None, max_depth=args.depth)
         client = LlmClient()
-        summary = summarize_node(
-            conn, node, client,
+        tree = describe_tree(
+            conn,
+            args.schema,
+            args.object,
+            args.subprogram or None,
+            client,
             force=args.force,
-            summary_kind=args.kind,
-            use_substatements=not args.no_substatements,
+            max_depth=args.depth,
         )
     finally:
         conn.close()
-    write_summary_output(args, summary)
-    _logger.info(summary)
+    output = render_tree(tree)
+    write_summary_output(args, output)
+    _logger.info(output)
 
 
 def cmd_explain(args: argparse.Namespace) -> None:
@@ -245,9 +245,7 @@ def build_parser() -> argparse.ArgumentParser:
     summarize_parser.add_argument("--object", required=True, help="Имя объекта")
     summarize_parser.add_argument("--subprogram", default=None, help="Имя подпрограммы внутри пакета (опционально)")
     summarize_parser.add_argument("--depth", type=int, default=None, help="Максимальная глубина обхода зависимостей (по умолчанию: без ограничения)")
-    summarize_parser.add_argument("--kind", choices=["brief", "detailed"], default="brief", help="Тип суммари: brief (краткое) или detailed (подробное)")
-    summarize_parser.add_argument("--no-substatements", action="store_true", help="Не использовать анализ по подоператорам (классический режим)")
-    summarize_parser.add_argument("--force", action="store_true", help="Игнорировать кэш суммари")
+    summarize_parser.add_argument("--force", action="store_true", help="Игнорировать кэш описаний")
     summarize_parser.set_defaults(func=cmd_summarize)
 
     explain_parser = subparsers.add_parser(
