@@ -183,7 +183,7 @@ public partial class PlsqlVisitor
             var thenStmts = ifStmt.seq_of_statements();
             if (thenStmts != null)
             {
-                AddSubstatement(subprogram, ifSeq, ref branchPos, GetSourceText(thenStmts),
+                AddSubstatement(subprogram, ifSeq, ref branchPos, "THEN",
                     "IF_THEN", thenStmts.Start.Line, thenStmts.Stop?.Line ?? thenStmts.Start.Line,
                     out int thenSeq);
                 ExtractSeqStatements(thenStmts, subprogram, thenSeq);

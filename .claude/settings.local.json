@@ -12,7 +12,8 @@
       "Bash(python -m pytest tests/test_indexer_sync.py -v)",
       "Bash(ls -la /Users/dmitrijbobylev/Documents/repos/plsql_explain/tests/test_summarizer* /Users/dmitrijbobylev/Documents/repos/plsql_explain/tests/test_substatement*)",
       "Bash(ls -la /Users/dmitrijbobylev/Documents/repos/plsql_explain/tests/test_summarizer*)",
-      "Bash(python -m pytest tests/ -x -v)"
+      "Bash(python -m pytest tests/ -x -v)",
+      "Bash(find /Users/dmitrijbobylev/Documents/repos/plsql_explain/plsql_parser -name *.g4 -o -name *.g)"
     ]
   }
 }
