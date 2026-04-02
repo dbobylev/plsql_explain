@@ -189,6 +189,60 @@ def test_call_expansion(mem_conn: sqlite3.Connection) -> None:
     assert "PKG_B" in call_node.title
 
 
+def test_repeated_call_sites_get_unique_node_ids(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "PKG_A")
+    _insert_source(mem_conn, "PKG_B")
+
+    _insert_substatement(mem_conn, "S", "PKG_A", "PACKAGE BODY", "",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="PKG_B.DO_SOMETHING();")
+    _insert_substatement(mem_conn, "S", "PKG_A", "PACKAGE BODY", "",
+                         seq=1, parent_seq=None, position=1,
+                         statement_type="OTHER", source_text="PKG_B.DO_SOMETHING();")
+    _insert_substatement(mem_conn, "S", "PKG_B", "PACKAGE BODY", "",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="v_x := 1;")
+
+    dep = _ok_node("PKG_A", children=[_ok_node("PKG_B")])
+    tree = build_description_tree(mem_conn, dep)
+
+    call_nodes = [child.children[0] for child in tree.children]
+    assert len(call_nodes) == 2
+    assert len({node.node_id for node in call_nodes}) == 2
+    assert len({node.children[0].node_id for node in call_nodes}) == 2
+
+
+def test_schema_qualified_call_matches_only_exact_callee(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "TEST_PKG", schema="LOCAL")
+    _insert_source(mem_conn, "SHARED_PKG", schema="SCHEMA_A")
+    _insert_source(mem_conn, "SHARED_PKG", schema="SCHEMA_B")
+
+    _insert_substatement(mem_conn, "LOCAL", "TEST_PKG", "PACKAGE BODY", "",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="schema_a.shared_pkg.do_work(1);")
+    _insert_substatement(mem_conn, "SCHEMA_A", "SHARED_PKG", "PACKAGE BODY", "DO_WORK",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="v_a := 1;")
+    _insert_substatement(mem_conn, "SCHEMA_B", "SHARED_PKG", "PACKAGE BODY", "DO_WORK",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="v_b := 1;")
+
+    dep = _ok_node(
+        "TEST_PKG",
+        schema="LOCAL",
+        children=[
+            _ok_node("SHARED_PKG", schema="SCHEMA_A", subprogram="DO_WORK"),
+            _ok_node("SHARED_PKG", schema="SCHEMA_B", subprogram="DO_WORK"),
+        ],
+    )
+    tree = build_description_tree(mem_conn, dep)
+
+    stmt = tree.children[0]
+    assert len(stmt.children) == 1
+    assert stmt.children[0].schema_name == "SCHEMA_A"
+    assert "SCHEMA_A" in stmt.children[0].title
+
+
 def test_cycle_detection_in_calls(mem_conn: sqlite3.Connection) -> None:
     """Cycle in call graph produces stub node."""
     _insert_source(mem_conn, "PKG_A")

@@ -75,6 +75,20 @@ def test_clear_tree(mem_conn: sqlite3.Connection) -> None:
     assert rows_after == 0
 
 
+def test_save_tree_replaces_stale_nodes(mem_conn: sqlite3.Connection) -> None:
+    child = _node(node_id="test/seq:0", description="Дочерний")
+    root_with_child = _node(children=[child])
+    save_tree(mem_conn, "S", "PKG_A", "PACKAGE BODY", None, root_with_child, "1")
+
+    root_without_child = _node(description="Только корень")
+    save_tree(mem_conn, "S", "PKG_A", "PACKAGE BODY", None, root_without_child, "1")
+
+    rows = mem_conn.execute("SELECT node_id, description FROM node_description ORDER BY node_id").fetchall()
+    assert len(rows) == 1
+    assert rows[0]["node_id"] == "test/root"
+    assert rows[0]["description"] == "Только корень"
+
+
 def test_upsert_updates_existing(mem_conn: sqlite3.Connection) -> None:
     node1 = _node(description="Первое описание")
     upsert_node_description(mem_conn, "S", "PKG_A", "PACKAGE BODY", None, node1, None, 0, "1")

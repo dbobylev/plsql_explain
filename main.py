@@ -64,6 +64,7 @@ def cmd_summarize(args: argparse.Namespace) -> None:
     from dotenv import load_dotenv
     load_dotenv()
     import sqlite3
+    from fetcher.sqlite_store import init_db
     from summarizer.llm_client import LlmClient
     from summarizer.tree_describer import describe_tree, render_tree
 
@@ -75,6 +76,7 @@ def cmd_summarize(args: argparse.Namespace) -> None:
         f", subprogram={args.subprogram}" if args.subprogram else "",
         args.force,
     )
+    init_db()
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:

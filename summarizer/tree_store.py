@@ -103,7 +103,8 @@ def save_tree(
     root: DescriptionNode,
     prompt_version: str,
 ) -> None:
-    """Save the entire tree to node_description table."""
+    """Replace the stored tree for the method with the current version."""
+    clear_tree(conn, schema, object_name, object_type, subprogram, prompt_version)
     _save_node(conn, schema, object_name, object_type, subprogram, root, None, 0, prompt_version)
 
 

@@ -47,6 +47,15 @@ def test_sql_strategy_mentions_tables() -> None:
     assert "таблицы" in user
 
 
+def test_sql_prefixed_type_uses_sql_strategy() -> None:
+    node = _node(statement_type="SQL_SELECT", source_text="SELECT * FROM ORDERS")
+    result = build_prompt(node)
+    assert result is not None
+    _, user = result
+    assert "таблицы" in user
+    assert "Операция: SELECT" in user
+
+
 def test_branching_strategy() -> None:
     child = _node(statement_type="IF_THEN", source_text="x := 1;")
     child.description = "Присваивает x значение 1"

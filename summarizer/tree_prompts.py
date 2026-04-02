@@ -15,6 +15,13 @@ def _description_length_hint(n_children: int) -> str:
     return "Опиши 2-4 предложениями, выдели основные шаги."
 
 
+def _display_statement_type(statement_type: str) -> str:
+    normalized = statement_type.upper()
+    if normalized.startswith("SQL_"):
+        return normalized[4:]
+    return normalized
+
+
 def _format_children_descriptions(node: DescriptionNode) -> str:
     lines = []
     for i, child in enumerate(node.children, 1):
@@ -28,6 +35,7 @@ def _format_children_descriptions(node: DescriptionNode) -> str:
 # ---------------------------------------------------------------------------
 
 def _sql_strategy(node: DescriptionNode) -> tuple[str, str]:
+    operation = _display_statement_type(node.statement_type)
     system = (
         "Ты аналитик PL/SQL кода Oracle. "
         "Опиши SQL-операцию кратко и точно на русском языке."
@@ -36,7 +44,7 @@ def _sql_strategy(node: DescriptionNode) -> tuple[str, str]:
         children_text = _format_children_descriptions(node)
         hint = _description_length_hint(len(node.children))
         user = (
-            f"Операция: {node.statement_type}\n"
+            f"Операция: {operation}\n"
             f"Код:\n```\n{node.source_text}\n```\n\n"
             f"Вложенные элементы:\n{children_text}\n\n"
             f"Укажи какие таблицы затрагиваются, какие данные выбираются/изменяются, "
@@ -44,7 +52,7 @@ def _sql_strategy(node: DescriptionNode) -> tuple[str, str]:
         )
     else:
         user = (
-            f"Операция: {node.statement_type}\n"
+            f"Операция: {operation}\n"
             f"Код:\n```\n{node.source_text}\n```\n\n"
             f"Укажи какие таблицы затрагиваются, какие данные выбираются/изменяются, "
             f"ключевые условия WHERE/JOIN.\nОпиши 1-2 предложениями."
@@ -186,7 +194,7 @@ def _default_strategy(node: DescriptionNode) -> tuple[str, str]:
 # Strategy registry
 # ---------------------------------------------------------------------------
 
-_SQL_TYPES = {"SELECT", "INSERT", "UPDATE", "DELETE", "MERGE"}
+_SQL_TYPES = {"SELECT", "INSERT", "UPDATE", "DELETE", "MERGE", "EXECUTE_IMMEDIATE"}
 _BRANCHING_TYPES = {"IF", "IF_THEN", "IF_ELSIF", "IF_ELSE", "CASE", "CASE_WHEN", "CASE_ELSE"}
 _LOOP_TYPES = {"LOOP_FOR", "LOOP_WHILE", "LOOP_BASIC"}
 _EXCEPTION_TYPES = {"EXCEPTION_HANDLER"}
@@ -203,7 +211,7 @@ def build_prompt(node: DescriptionNode) -> Optional[tuple[str, str]]:
     if node.node_kind == "method_root":
         return _method_root_strategy(node)
 
-    st = node.statement_type.upper()
+    st = _display_statement_type(node.statement_type)
 
     if st in _SQL_TYPES:
         return _sql_strategy(node)
