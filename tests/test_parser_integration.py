@@ -206,6 +206,19 @@ CREATE OR REPLACE PACKAGE BODY TEST_PKG AS
 END TEST_PKG;
 """
 
+_PKG_WITH_CYRILLIC = """\
+CREATE OR REPLACE PACKAGE BODY TEST_PKG AS
+
+  PROCEDURE PROCESS_RU IS
+    v_msg VARCHAR2(100);
+  BEGIN
+    v_msg := 'Привет, мир';
+    DBMS_OUTPUT.PUT_LINE('Сообщение: ' || v_msg);
+  END PROCESS_RU;
+
+END TEST_PKG;
+"""
+
 
 @requires_binary
 def test_subprogram_extraction_returns_both_subprograms():
@@ -223,6 +236,15 @@ def test_subprogram_source_text_contains_procedure_name():
     proc = next(sp for sp in out.subprograms if sp.name == "PROCESS")
     assert "PROCESS" in proc.source_text
     assert proc.start_line < proc.end_line
+
+
+@requires_binary
+def test_subprogram_source_text_preserves_cyrillic():
+    out = parse_object("S", "TEST_PKG", "PACKAGE BODY", _PKG_WITH_CYRILLIC)
+
+    proc = next(sp for sp in out.subprograms if sp.name == "PROCESS_RU")
+    assert "Привет, мир" in proc.source_text
+    assert "Сообщение" in proc.source_text
 
 
 @requires_binary

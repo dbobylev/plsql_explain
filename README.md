@@ -96,6 +96,9 @@ python main.py fetch --schema MYSCHEMA --object PKG_ORDERS
 
 # Загрузить и сразу распарсить
 python main.py fetch --schema MYSCHEMA --parse
+
+# Загрузить, распарсить и подтянуть описания таблиц/колонок
+python main.py fetch --schema MYSCHEMA --parse --with-table-meta
 ```
 
 ### Шаг 2 — Распарсить объекты (построить граф вызовов)
@@ -109,6 +112,18 @@ python main.py parse --schema MYSCHEMA --object PKG_ORDERS
 
 # Принудительно перепарсить (игнорировать кэш по хэшу)
 python main.py parse --schema MYSCHEMA --force
+
+# После парсинга синхронизировать описания таблиц и колонок
+python main.py parse --schema MYSCHEMA --with-table-meta
+```
+
+### Шаг 2.5 — Подтянуть метаданные таблиц
+
+Если `table_access` уже собран, описания таблиц и колонок можно обновить отдельной командой:
+
+```bash
+python main.py sync-table-meta --schema MYSCHEMA
+python main.py sync-table-meta --schema MYSCHEMA --object PKG_ORDERS
 ```
 
 ### Debug — запустить парсер на произвольном PL/SQL
@@ -187,6 +202,17 @@ python main.py summarize --schema MYSCHEMA --object PKG_ORDERS --force
 
 При изменении одной ветки пересчитывается только затронутое поддерево, а не весь метод целиком.
 
+#### Описания таблиц и колонок
+
+После `parse --with-table-meta` или `sync-table-meta` в SQLite сохраняются:
+
+1. Описание таблицы или view
+2. Список колонок с типами и nullable
+3. Описания колонок
+
+В prompt для LLM описание таблицы передаётся всегда, если метаданные найдены.
+Колонки передаются выборочно: только если их имена найдены в текущем фрагменте исходника. Это снижает шум и не перегружает контекст.
+
 ## Архитектура
 
 Система — многоступенчатый пайплайн:
@@ -197,6 +223,8 @@ Oracle DBA_SOURCE
   [1] fetch        — загрузка исходников в SQLite
        ↓
   [2] parse        — C#-парсер (ANTLR4) → граф вызовов + доступ к таблицам
+       ↓
+  [2.5] sync-table-meta — описания таблиц/колонок из Oracle → SQLite
        ↓
   [3] explain      — обход графа в глубину, дерево зависимостей
        ↓
@@ -211,6 +239,8 @@ Oracle DBA_SOURCE
 | `parse_result` | Статус парсинга + хэш последнего разбора |
 | `call_edge` | Граф вызовов между объектами и подпрограммами |
 | `table_access` | Обращения к таблицам (SELECT/INSERT/UPDATE/DELETE/MERGE) |
+| `table_metadata` | Описание таблиц/view, найденных в `table_access` |
+| `column_metadata` | Колонки, типы и комментарии для таблиц/view |
 | `subprogram` | Процедуры/функции внутри пакетов (имя, тип, исходный код) |
 | `substatement` | Дерево операторов внутри подпрограмм (IF, LOOP, SQL, EXCEPTION и т.д.) |
 | `summary` | Кэш LLM-суммаризаций с разделением по типу (brief/detailed) |
@@ -235,6 +265,7 @@ Oracle DBA_SOURCE
 | `plsql_parser/` | C# (ANTLR4) — парсинг PL/SQL, построение графа вызовов |
 | `parser/` | Python-обёртка над C#-бинарником (subprocess + JSON) |
 | `indexer/` | Инкрементальное обновление графа в SQLite по хэшу |
+| `tablemeta/` | Загрузка описаний таблиц и колонок из Oracle в SQLite |
 | `traversal/` | Обход графа в глубину, построение дерева зависимостей |
 | `summarizer/` | LLM-суммаризация: рекурсивный анализ по substatement'ам, иерархическая агрегация, два режима (brief/detailed) |
 

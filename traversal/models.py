@@ -5,10 +5,21 @@ from typing import Optional
 
 
 @dataclass
+class ColumnMetadataInfo:
+    column_name: str
+    data_type: Optional[str] = None
+    nullable: Optional[bool] = None
+    column_comment: Optional[str] = None
+
+
+@dataclass
 class TableAccessInfo:
     table_schema: Optional[str]
     table_name: str
     operation: str  # SELECT | INSERT | UPDATE | DELETE | MERGE
+    table_object_type: Optional[str] = None
+    table_comment: Optional[str] = None
+    columns: list[ColumnMetadataInfo] = field(default_factory=list)
 
 
 @dataclass

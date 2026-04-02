@@ -4,9 +4,12 @@ import re
 from typing import Optional
 
 from summarizer.substatements import AnalysisUnit, render_analysis_unit_source
-from traversal.models import DependencyNode
+from traversal.models import ColumnMetadataInfo, DependencyNode, TableAccessInfo
 
 PROMPT_VERSION = "3"
+MAX_COLUMNS_PER_TABLE = 6
+TABLE_COMMENT_MAX_LEN = 140
+COLUMN_COMMENT_MAX_LEN = 80
 
 SYSTEM_PROMPT = (
     "Ты аналитик PL/SQL кода Oracle. "
@@ -150,6 +153,7 @@ def build_aggregate_unit_prompt(
     parts.append("")
 
     if unit.unit_kind == "method":
+        _append_table_accesses(parts, node, reference_text)
         _append_child_summaries(parts, node, child_summaries, reference_text)
         if summary_kind == "detailed":
             parts.append(
@@ -191,7 +195,17 @@ def _append_table_accesses(
     parts.append("Обращения к таблицам:")
     for ta in table_accesses:
         schema_prefix = f"{ta.table_schema}." if ta.table_schema else ""
-        parts.append(f"- {schema_prefix}{ta.table_name} ({ta.operation})")
+        line = f"- {schema_prefix}{ta.table_name} ({ta.operation})"
+        if ta.table_object_type:
+            line += f" [{ta.table_object_type}]"
+        if ta.table_comment:
+            line += f" — {_truncate_text(ta.table_comment, TABLE_COMMENT_MAX_LEN)}"
+        parts.append(line)
+
+        matched_columns = _filter_table_columns(ta, reference_text)
+        if matched_columns:
+            columns_text = "; ".join(_format_column_metadata(column) for column in matched_columns)
+            parts.append(f"  Колонки по тексту фрагмента: {columns_text}")
     parts.append("")
 
 
@@ -250,6 +264,31 @@ def _table_reference_candidates(table_schema: Optional[str], table_name: str) ->
     return (table_name,)
 
 
+def _filter_table_columns(
+    table_access: TableAccessInfo,
+    reference_text: Optional[str],
+) -> list[ColumnMetadataInfo]:
+    if reference_text is None or not table_access.columns:
+        return []
+
+    matched: list[ColumnMetadataInfo] = []
+    for column in table_access.columns:
+        if _contains_identifier_reference(reference_text, column.column_name):
+            matched.append(column)
+        if len(matched) >= MAX_COLUMNS_PER_TABLE:
+            break
+    return matched
+
+
+def _format_column_metadata(column: ColumnMetadataInfo) -> str:
+    line = column.column_name
+    if column.data_type:
+        line += f" ({column.data_type})"
+    if column.column_comment:
+        line += f" — {_truncate_text(column.column_comment, COLUMN_COMMENT_MAX_LEN)}"
+    return line
+
+
 def _child_reference_candidates(
     node: DependencyNode,
     obj_name: str,
@@ -267,6 +306,12 @@ def _contains_identifier_reference(reference_text: str, candidate: str) -> bool:
         return False
     pattern = rf"(?<![A-Z0-9_$#]){re.escape(candidate)}(?![A-Z0-9_$#])"
     return re.search(pattern, reference_text, flags=re.IGNORECASE) is not None
+
+
+def _truncate_text(text: str, max_length: int) -> str:
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 3].rstrip() + "..."
 
 
 def _build_reference_text(header_context: tuple[str, ...], body_text: str) -> str:

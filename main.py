@@ -137,7 +137,11 @@ def cmd_fetch(args: argparse.Namespace) -> None:
 
         _logger.info("")
         _logger.info("Запуск парсинга...")
-        parse_run(schema=args.schema, object_name=args.object)
+        parse_run(
+            schema=args.schema,
+            object_name=args.object,
+            with_table_meta=args.with_table_meta,
+        )
 
 
 def cmd_parse(args: argparse.Namespace) -> None:
@@ -150,7 +154,24 @@ def cmd_parse(args: argparse.Namespace) -> None:
         f", object={args.object}" if args.object else "",
         " [force]" if args.force else "",
     )
-    run(schema=args.schema, object_name=args.object, force=args.force)
+    run(
+        schema=args.schema,
+        object_name=args.object,
+        force=args.force,
+        with_table_meta=args.with_table_meta,
+    )
+
+
+def cmd_sync_table_meta(args: argparse.Namespace) -> None:
+    ensure_logging_configured(getattr(args, "log_level", None))
+    from tablemeta.sync import run
+
+    _logger.info(
+        "Синхронизация метаданных таблиц: schema=%s%s",
+        args.schema,
+        f", object={args.object}" if args.object else "",
+    )
+    run(schema=args.schema, object_name=args.object)
 
 
 def cmd_debug(args: argparse.Namespace) -> None:
@@ -184,6 +205,11 @@ def build_parser() -> argparse.ArgumentParser:
     fetch_parser.add_argument("--schema", required=True, help="Имя схемы Oracle (например: MYSCHEMA)")
     fetch_parser.add_argument("--object", default=None, help="Имя конкретного объекта (опционально)")
     fetch_parser.add_argument("--parse", action="store_true", help="После загрузки сразу запустить парсинг")
+    fetch_parser.add_argument(
+        "--with-table-meta",
+        action="store_true",
+        help="После парсинга синхронизировать описания таблиц и колонок",
+    )
     fetch_parser.set_defaults(func=cmd_fetch)
 
     parse_parser = subparsers.add_parser(
@@ -194,7 +220,21 @@ def build_parser() -> argparse.ArgumentParser:
     parse_parser.add_argument("--schema", required=True, help="Имя схемы Oracle")
     parse_parser.add_argument("--object", default=None, help="Имя конкретного объекта (опционально)")
     parse_parser.add_argument("--force", action="store_true", help="Перепарсить даже неизменённые объекты")
+    parse_parser.add_argument(
+        "--with-table-meta",
+        action="store_true",
+        help="После парсинга синхронизировать описания таблиц и колонок",
+    )
     parse_parser.set_defaults(func=cmd_parse)
+
+    table_meta_parser = subparsers.add_parser(
+        "sync-table-meta",
+        parents=[common_parser],
+        help="Загрузить описания таблиц и колонок для уже найденных table_access",
+    )
+    table_meta_parser.add_argument("--schema", required=True, help="Имя схемы Oracle")
+    table_meta_parser.add_argument("--object", default=None, help="Имя конкретного объекта (опционально)")
+    table_meta_parser.set_defaults(func=cmd_sync_table_meta)
 
     summarize_parser = subparsers.add_parser(
         "summarize",

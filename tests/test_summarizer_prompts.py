@@ -8,7 +8,7 @@ from summarizer.prompts import (
     build_prompt,
 )
 from summarizer.substatements import AnalysisUnit, SubstatementNode
-from traversal.models import DependencyNode, TableAccessInfo
+from traversal.models import ColumnMetadataInfo, DependencyNode, TableAccessInfo
 
 
 def _node(
@@ -146,3 +146,38 @@ def test_build_aggregate_unit_prompt_filters_method_children_by_method_source_te
 
     assert "PKG_UTIL.RUN_JOB: utility summary" in user
     assert "LOCAL_HELPER" not in user
+
+
+def test_build_prompt_includes_table_comment_and_matching_columns() -> None:
+    node = _node(
+        table_accesses=[
+            TableAccessInfo(
+                table_schema="HR",
+                table_name="ORDERS",
+                operation="SELECT",
+                table_comment="Заказы клиентов",
+                columns=[
+                    ColumnMetadataInfo(column_name="ORDER_ID", data_type="NUMBER", column_comment="Идентификатор"),
+                    ColumnMetadataInfo(column_name="STATUS", data_type="VARCHAR2", column_comment="Статус заказа"),
+                    ColumnMetadataInfo(column_name="INTERNAL_FLAG", data_type="CHAR", column_comment="Служебный признак"),
+                ],
+            ),
+        ]
+    )
+
+    _, user = build_prompt(
+        node,
+        """
+        begin
+            select o.order_id, o.status
+              into v_id, v_status
+              from hr.orders o;
+        end;
+        """,
+        {},
+    )
+
+    assert "HR.ORDERS (SELECT) — Заказы клиентов" in user
+    assert "ORDER_ID (NUMBER) — Идентификатор" in user
+    assert "STATUS (VARCHAR2) — Статус заказа" in user
+    assert "INTERNAL_FLAG" not in user

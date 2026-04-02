@@ -20,6 +20,7 @@ def run(
     schema: str,
     object_name: str | None = None,
     force: bool = False,
+    with_table_meta: bool = False,
 ) -> None:
     ensure_logging_configured()
     fetcher_store.init_db()
@@ -86,3 +87,10 @@ def run(
         f"{counts['parsed']} распарсено, {counts['wrapped']} wrapped, "
         f"{counts['error']} ошибок, {counts['unchanged']} без изменений."
     )
+
+    if with_table_meta:
+        from tablemeta.sync import run as sync_table_meta_run
+
+        _logger.info("")
+        _logger.info("Синхронизация метаданных таблиц...")
+        sync_table_meta_run(schema=schema, object_name=object_name)

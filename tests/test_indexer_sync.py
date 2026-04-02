@@ -69,9 +69,13 @@ def test_new_object_is_parsed_and_stored(mem_conn):
 
     edge_count = mem_conn.execute("SELECT COUNT(*) FROM call_edge").fetchone()[0]
     assert edge_count == 1
+    edge_row = mem_conn.execute("SELECT callee_schema FROM call_edge").fetchone()
+    assert edge_row["callee_schema"] == "S"
 
     access_count = mem_conn.execute("SELECT COUNT(*) FROM table_access").fetchone()[0]
     assert access_count == 1
+    access_row = mem_conn.execute("SELECT table_schema FROM table_access").fetchone()
+    assert access_row["table_schema"] == "S"
 
 
 def test_force_reparses_unchanged_object(mem_conn):
@@ -164,3 +168,15 @@ def test_object_name_filter(mem_conn):
 
     assert mock_parse.call_count == 1
     assert mock_parse.call_args[0][1] == "PKG_A"
+
+
+def test_with_table_meta_triggers_metadata_sync(mem_conn):
+    _seed_object(mem_conn, "PKG_A")
+
+    with patch("fetcher.sqlite_store.init_db"), \
+         patch("fetcher.sqlite_store._connect", return_value=mem_conn), \
+         patch("parser.runner.parse_object", return_value=_make_output()), \
+         patch("tablemeta.sync.run") as mock_tablemeta:
+        sync.run(schema="S", with_table_meta=True)
+
+    mock_tablemeta.assert_called_once_with(schema="S", object_name=None)

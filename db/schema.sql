@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS call_edge (
     callee_object     TEXT NOT NULL,
     callee_subprogram TEXT,
     UNIQUE(caller_schema, caller_object, caller_type, caller_subprogram,
-           callee_object, callee_subprogram)
+           callee_schema, callee_object, callee_subprogram)
 );
 
 CREATE TABLE IF NOT EXISTS table_access (
@@ -43,7 +43,31 @@ CREATE TABLE IF NOT EXISTS table_access (
     table_schema   TEXT,
     table_name     TEXT NOT NULL,
     operation      TEXT NOT NULL,
-    UNIQUE(schema_name, object_name, object_type, subprogram, table_name, operation)
+    UNIQUE(schema_name, object_name, object_type, subprogram,
+           table_schema, table_name, operation)
+);
+
+CREATE TABLE IF NOT EXISTS table_metadata (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    schema_name   TEXT NOT NULL,
+    table_name    TEXT NOT NULL,
+    object_type   TEXT,
+    table_comment TEXT,
+    refreshed_at  TEXT NOT NULL,
+    UNIQUE(schema_name, table_name)
+);
+
+CREATE TABLE IF NOT EXISTS column_metadata (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    schema_name    TEXT NOT NULL,
+    table_name     TEXT NOT NULL,
+    column_name    TEXT NOT NULL,
+    column_id      INTEGER,
+    data_type      TEXT,
+    nullable       INTEGER,
+    column_comment TEXT,
+    refreshed_at   TEXT NOT NULL,
+    UNIQUE(schema_name, table_name, column_name)
 );
 
 CREATE TABLE IF NOT EXISTS subprogram (

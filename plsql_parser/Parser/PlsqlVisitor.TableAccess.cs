@@ -92,7 +92,7 @@ public partial class PlsqlVisitor
 
         if (tableName is "DUAL" or "") return;
 
-        var key = $"{CurrentSubprogram}|{tableName}|{operation}";
+        var key = $"{CurrentSubprogram}|{tableSchema}|{tableName}|{operation}";
         if (!_accessKeys.Add(key)) return;
 
         TableAccesses.Add(new TableAccess

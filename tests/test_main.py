@@ -33,6 +33,11 @@ def test_fetch_parse_flag_set():
     assert args.parse is True
 
 
+def test_fetch_with_table_meta_flag():
+    args = build_parser().parse_args(["fetch", "--schema", "S", "--parse", "--with-table-meta"])
+    assert args.with_table_meta is True
+
+
 def test_parse_command_schema():
     args = build_parser().parse_args(["parse", "--schema", "MYSCHEMA"])
     assert args.schema == "MYSCHEMA"
@@ -45,6 +50,11 @@ def test_parse_command_with_object_and_force():
     args = build_parser().parse_args(["parse", "--schema", "S", "--object", "PKG_A", "--force"])
     assert args.object == "PKG_A"
     assert args.force is True
+
+
+def test_parse_command_with_table_meta():
+    args = build_parser().parse_args(["parse", "--schema", "S", "--with-table-meta"])
+    assert args.with_table_meta is True
 
 
 def test_parse_command_missing_schema_raises():
@@ -74,6 +84,12 @@ def test_explain_missing_schema_raises():
 def test_explain_missing_object_raises():
     with pytest.raises(SystemExit):
         build_parser().parse_args(["explain", "--schema", "S"])
+
+
+def test_sync_table_meta_parses_args():
+    args = build_parser().parse_args(["sync-table-meta", "--schema", "S", "--object", "PKG_A"])
+    assert args.schema == "S"
+    assert args.object == "PKG_A"
 
 
 def test_summarize_parses_required_args():

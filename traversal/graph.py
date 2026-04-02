@@ -209,7 +209,8 @@ def print_tree_verbose(node: DependencyNode, prefix: str = "", is_last: bool = T
     # Table accesses
     for a in node.table_accesses:
         table_ref = f"{a.table_schema}.{a.table_name}" if a.table_schema else a.table_name
-        _logger.info("%s", child_prefix + f"  TABLE: {table_ref} — {a.operation}")
+        description = f" — {a.table_comment}" if a.table_comment else ""
+        _logger.info("%s", child_prefix + f"  TABLE: {table_ref} — {a.operation}{description}")
 
     # Children
     for i, child in enumerate(node.children):
