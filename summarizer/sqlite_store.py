@@ -105,53 +105,6 @@ def upsert_summary(
         )
 
 
-def get_chunk_analysis(
-    conn: sqlite3.Connection,
-    schema: str,
-    name: str,
-    obj_type: str,
-    subprogram: Optional[str],
-    chunk_index: int,
-) -> Optional[tuple[str, str]]:
-    """
-    Returns (chunk_hash, analysis_text) if a cached chunk analysis exists, else None.
-    """
-    row = conn.execute(
-        "SELECT chunk_hash, analysis_text FROM chunk_analysis "
-        "WHERE schema_name=? AND object_name=? AND object_type=? AND subprogram=? AND chunk_index=?",
-        (schema.upper(), name.upper(), obj_type, _norm(subprogram), chunk_index),
-    ).fetchone()
-    return (row[0], row[1]) if row else None
-
-
-def upsert_chunk_analysis(
-    conn: sqlite3.Connection,
-    schema: str,
-    name: str,
-    obj_type: str,
-    subprogram: Optional[str],
-    chunk_index: int,
-    chunk_hash: str,
-    analysis_text: str,
-) -> None:
-    now = datetime.now(timezone.utc).isoformat()
-    with conn:
-        conn.execute(
-            """
-            INSERT INTO chunk_analysis
-                (schema_name, object_name, object_type, subprogram, chunk_index,
-                 chunk_hash, analysis_text, analyzed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(schema_name, object_name, object_type, subprogram, chunk_index)
-            DO UPDATE SET chunk_hash=excluded.chunk_hash,
-                          analysis_text=excluded.analysis_text,
-                          analyzed_at=excluded.analyzed_at
-            """,
-            (schema.upper(), name.upper(), obj_type, _norm(subprogram),
-             chunk_index, chunk_hash, analysis_text, now),
-        )
-
-
 def get_analysis_cache(
     conn: sqlite3.Connection,
     schema: str,
