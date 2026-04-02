@@ -52,10 +52,12 @@ public partial class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
     private readonly string _callerObject;
     private readonly string _callerType;
     private readonly string _sourceText;
+    private readonly HashSet<string> _topLevelPackageSubprograms = new(StringComparer.OrdinalIgnoreCase);
 
     // Stack of enclosing subprogram names (null = package level or standalone object).
     private readonly Stack<string?> _subprogramStack = new();
     private string? CurrentSubprogram => _subprogramStack.Count > 0 ? _subprogramStack.Peek() : null;
+    private bool IsPackageBody => string.Equals(_callerType, "PACKAGE BODY", StringComparison.OrdinalIgnoreCase);
 
     // Stack of current DML operation for table access tracking.
     private readonly Stack<string> _dmlStack = new();
@@ -85,6 +87,7 @@ public partial class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
     {
         return tree switch
         {
+            PlSqlParser.Create_package_bodyContext ctx => VisitCreate_package_body(ctx),
             PlSqlParser.Procedure_bodyContext ctx => VisitProcedure_body(ctx),
             PlSqlParser.Function_bodyContext ctx => VisitFunction_body(ctx),
             PlSqlParser.Create_procedure_bodyContext ctx => VisitCreate_procedure_body(ctx),
@@ -110,6 +113,12 @@ public partial class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
     }
 
     // ── Subprogram boundary tracking ────────────────────────────────────────
+
+    public override object? VisitCreate_package_body([NotNull] PlSqlParser.Create_package_bodyContext ctx)
+    {
+        RegisterTopLevelPackageSubprograms(ctx);
+        return base.VisitCreate_package_body(ctx);
+    }
 
     // Called for subprograms INSIDE a package body.
     public override object? VisitProcedure_body([NotNull] PlSqlParser.Procedure_bodyContext ctx)
@@ -168,5 +177,41 @@ public partial class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
             EndLine = ctx.Stop?.Line ?? ctx.Start.Line,
             SourceText = GetSourceText(ctx),
         });
+    }
+
+    private void RegisterTopLevelPackageSubprograms(PlSqlParser.Create_package_bodyContext ctx)
+    {
+        _topLevelPackageSubprograms.Clear();
+
+        foreach (var packageItem in ctx.package_obj_body())
+            RegisterTopLevelPackageSubprogram(packageItem);
+    }
+
+    private void RegisterTopLevelPackageSubprogram(PlSqlParser.Package_obj_bodyContext ctx)
+    {
+        RegisterTopLevelPackageSubprogram(ctx.procedure_spec()?.identifier()?.GetText());
+        RegisterTopLevelPackageSubprogram(ctx.function_spec()?.identifier()?.GetText());
+        RegisterTopLevelPackageSubprogram(ctx.procedure_body()?.identifier()?.GetText());
+        RegisterTopLevelPackageSubprogram(ctx.function_body()?.identifier()?.GetText());
+
+        var selectionDirective = ctx.selection_directive();
+        if (selectionDirective == null)
+            return;
+
+        foreach (var body in selectionDirective.selection_directive_body())
+        {
+            foreach (var procedureBody in body.procedure_body())
+                RegisterTopLevelPackageSubprogram(procedureBody.identifier()?.GetText());
+
+            foreach (var functionBody in body.function_body())
+                RegisterTopLevelPackageSubprogram(functionBody.identifier()?.GetText());
+        }
+    }
+
+    private void RegisterTopLevelPackageSubprogram(string? name)
+    {
+        var normalizedName = name?.ToUpperInvariant();
+        if (!string.IsNullOrEmpty(normalizedName))
+            _topLevelPackageSubprograms.Add(normalizedName);
     }
 }

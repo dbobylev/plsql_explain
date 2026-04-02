@@ -206,6 +206,22 @@ CREATE OR REPLACE PACKAGE BODY TEST_PKG AS
 END TEST_PKG;
 """
 
+_PKG_WITH_SAME_PACKAGE_CALL = """\
+CREATE OR REPLACE PACKAGE BODY MYSCHEMA.FOO AS
+
+  PROCEDURE BAR IS
+  BEGIN
+    NULL;
+  END BAR;
+
+  PROCEDURE FOOBAR IS
+  BEGIN
+    BAR();
+  END FOOBAR;
+
+END FOO;
+"""
+
 _PKG_WITH_CYRILLIC = """\
 CREATE OR REPLACE PACKAGE BODY TEST_PKG AS
 
@@ -376,6 +392,20 @@ def test_same_package_subprogram_called_from_different_schemas_are_not_deduplica
     assert ("SCHEMA_B", "SHARED_PKG", "DO_WORK") in edges
     assert ("SCHEMA_C", "CALC_PKG", "GET_VALUE") in edges
     assert len(edges) == 3
+
+
+@requires_binary
+def test_same_package_single_part_call_resolves_to_current_package_subprogram():
+    out = parse_object("MYSCHEMA", "FOO", "PACKAGE BODY", _PKG_WITH_SAME_PACKAGE_CALL)
+
+    assert out.status == "ok", f"Expected ok, got {out.status!r}: {out.error_message}"
+
+    edges = {
+        (edge.caller_subprogram, edge.callee_schema, edge.callee_object, edge.callee_subprogram)
+        for edge in out.call_edges
+    }
+
+    assert ("FOOBAR", None, "FOO", "BAR") in edges
 
 
 # ---------------------------------------------------------------------------

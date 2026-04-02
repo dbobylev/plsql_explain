@@ -82,14 +82,19 @@ public partial class PlsqlVisitor
     /// Resolves a dot-separated name list into (schema, object, subprogram).
     /// 1 part → unqualified call; 2 parts → pkg.proc; 3+ parts → schema.pkg.proc (last 3 win).
     /// </summary>
-    private static (string? CalleeSchema, string CalleeObject, string? CalleeSubprogram) ResolveCallTarget(
+    private (string? CalleeSchema, string CalleeObject, string? CalleeSubprogram) ResolveCallTarget(
         IReadOnlyList<string> parts)
     {
         if (parts.Count == 0)
             return (null, string.Empty, null);
 
         if (parts.Count == 1)
+        {
+            if (IsPackageBody && _topLevelPackageSubprograms.Contains(parts[0]))
+                return (null, _callerObject, parts[0]);
+
             return (null, parts[0], null);
+        }
 
         if (parts.Count == 2)
             return (null, parts[0], parts[1]);
