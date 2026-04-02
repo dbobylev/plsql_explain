@@ -65,7 +65,8 @@ def replace_call_edges(
         """,
         [
             (schema, name, obj_type, e.caller_subprogram,
-             e.callee_schema, e.callee_object, e.callee_subprogram)
+             _normalize_schema_reference(e.callee_schema, schema),
+             e.callee_object, e.callee_subprogram)
             for e in edges
         ],
     )
@@ -92,7 +93,8 @@ def replace_table_accesses(
         """,
         [
             (schema, name, obj_type, a.subprogram,
-             a.table_schema, a.table_name, a.operation)
+             _normalize_schema_reference(a.table_schema, schema),
+             a.table_name, a.operation)
             for a in accesses
         ],
     )
@@ -163,3 +165,10 @@ def replace_substatements(
             for s in substatements
         ],
     )
+
+
+def _normalize_schema_reference(
+    reference_schema: Optional[str],
+    current_schema: str,
+) -> str:
+    return (reference_schema or current_schema).upper()

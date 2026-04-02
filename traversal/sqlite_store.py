@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Optional
 
-from traversal.models import TableAccessInfo
+from traversal.models import ColumnMetadataInfo, TableAccessInfo
 
 
 def get_object_info(
@@ -133,19 +133,86 @@ def get_table_accesses(
     if subprogram is None:
         rows = conn.execute(
             """
-            SELECT table_schema, table_name, operation
-            FROM table_access
-            WHERE schema_name = ? AND object_name = ? AND object_type = ? AND subprogram IS NULL
+            SELECT COALESCE(ta.table_schema, ta.schema_name) AS table_schema,
+                   ta.table_name,
+                   ta.operation,
+                   tm.object_type AS table_object_type,
+                   tm.table_comment
+            FROM table_access ta
+            LEFT JOIN table_metadata tm
+                   ON tm.schema_name = COALESCE(ta.table_schema, ta.schema_name)
+                  AND tm.table_name = ta.table_name
+            WHERE ta.schema_name = ? AND ta.object_name = ? AND ta.object_type = ? AND ta.subprogram IS NULL
+            ORDER BY table_schema, ta.table_name, ta.operation
             """,
             (schema.upper(), name.upper(), obj_type.upper()),
         ).fetchall()
     else:
         rows = conn.execute(
             """
-            SELECT table_schema, table_name, operation
-            FROM table_access
-            WHERE schema_name = ? AND object_name = ? AND object_type = ? AND subprogram = ?
+            SELECT COALESCE(ta.table_schema, ta.schema_name) AS table_schema,
+                   ta.table_name,
+                   ta.operation,
+                   tm.object_type AS table_object_type,
+                   tm.table_comment
+            FROM table_access ta
+            LEFT JOIN table_metadata tm
+                   ON tm.schema_name = COALESCE(ta.table_schema, ta.schema_name)
+                  AND tm.table_name = ta.table_name
+            WHERE ta.schema_name = ? AND ta.object_name = ? AND ta.object_type = ? AND ta.subprogram = ?
+            ORDER BY table_schema, ta.table_name, ta.operation
             """,
             (schema.upper(), name.upper(), obj_type.upper(), subprogram.upper()),
         ).fetchall()
-    return [TableAccessInfo(table_schema=r[0], table_name=r[1], operation=r[2]) for r in rows]
+
+    column_map = _load_column_metadata(conn, rows)
+    return [
+        TableAccessInfo(
+            table_schema=row["table_schema"],
+            table_name=row["table_name"],
+            operation=row["operation"],
+            table_object_type=row["table_object_type"],
+            table_comment=row["table_comment"],
+            columns=column_map.get((row["table_schema"], row["table_name"]), []),
+        )
+        for row in rows
+    ]
+
+
+def _load_column_metadata(
+    conn: sqlite3.Connection,
+    access_rows: list[sqlite3.Row],
+) -> dict[tuple[str, str], list[ColumnMetadataInfo]]:
+    table_keys = sorted(
+        {
+            (row["table_schema"], row["table_name"])
+            for row in access_rows
+            if row["table_schema"] and row["table_name"]
+        }
+    )
+    if not table_keys:
+        return {}
+
+    where_clause = " OR ".join("(schema_name = ? AND table_name = ?)" for _ in table_keys)
+    params = [item for key in table_keys for item in key]
+    rows = conn.execute(
+        f"""
+        SELECT schema_name, table_name, column_name, column_id, data_type, nullable, column_comment
+        FROM column_metadata
+        WHERE {where_clause}
+        ORDER BY schema_name, table_name, column_id, column_name
+        """,
+        params,
+    ).fetchall()
+
+    result: dict[tuple[str, str], list[ColumnMetadataInfo]] = {}
+    for row in rows:
+        result.setdefault((row["schema_name"], row["table_name"]), []).append(
+            ColumnMetadataInfo(
+                column_name=row["column_name"],
+                data_type=row["data_type"],
+                nullable=None if row["nullable"] is None else bool(row["nullable"]),
+                column_comment=row["column_comment"],
+            )
+        )
+    return result

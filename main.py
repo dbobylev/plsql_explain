@@ -64,35 +64,37 @@ def cmd_summarize(args: argparse.Namespace) -> None:
     from dotenv import load_dotenv
     load_dotenv()
     import sqlite3
-    from traversal.graph import build_tree
+    from fetcher.sqlite_store import init_db
     from summarizer.llm_client import LlmClient
-    from summarizer.engine import summarize_node
+    from summarizer.tree_describer import describe_tree, render_tree
 
     db_path = os.environ.get("SQLITE_PATH", "./data/plsql.db")
     _logger.debug(
-        "Суммаризация объекта: schema=%s, object=%s%s, kind=%s, force=%s, substatements=%s",
+        "Суммаризация объекта: schema=%s, object=%s%s, force=%s",
         args.schema,
         args.object,
         f", subprogram={args.subprogram}" if args.subprogram else "",
-        args.kind,
         args.force,
-        not args.no_substatements,
     )
+    init_db()
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        node = build_tree(conn, args.schema, args.object, args.subprogram or None, max_depth=args.depth)
         client = LlmClient()
-        summary = summarize_node(
-            conn, node, client,
+        tree = describe_tree(
+            conn,
+            args.schema,
+            args.object,
+            args.subprogram or None,
+            client,
             force=args.force,
-            summary_kind=args.kind,
-            use_substatements=not args.no_substatements,
+            max_depth=args.depth,
         )
     finally:
         conn.close()
-    write_summary_output(args, summary)
-    _logger.info(summary)
+    output = render_tree(tree)
+    write_summary_output(args, output)
+    _logger.info(output)
 
 
 def cmd_explain(args: argparse.Namespace) -> None:
@@ -137,7 +139,11 @@ def cmd_fetch(args: argparse.Namespace) -> None:
 
         _logger.info("")
         _logger.info("Запуск парсинга...")
-        parse_run(schema=args.schema, object_name=args.object)
+        parse_run(
+            schema=args.schema,
+            object_name=args.object,
+            with_table_meta=args.with_table_meta,
+        )
 
 
 def cmd_parse(args: argparse.Namespace) -> None:
@@ -150,7 +156,24 @@ def cmd_parse(args: argparse.Namespace) -> None:
         f", object={args.object}" if args.object else "",
         " [force]" if args.force else "",
     )
-    run(schema=args.schema, object_name=args.object, force=args.force)
+    run(
+        schema=args.schema,
+        object_name=args.object,
+        force=args.force,
+        with_table_meta=args.with_table_meta,
+    )
+
+
+def cmd_sync_table_meta(args: argparse.Namespace) -> None:
+    ensure_logging_configured(getattr(args, "log_level", None))
+    from tablemeta.sync import run
+
+    _logger.info(
+        "Синхронизация метаданных таблиц: schema=%s%s",
+        args.schema,
+        f", object={args.object}" if args.object else "",
+    )
+    run(schema=args.schema, object_name=args.object)
 
 
 def cmd_debug(args: argparse.Namespace) -> None:
@@ -184,6 +207,11 @@ def build_parser() -> argparse.ArgumentParser:
     fetch_parser.add_argument("--schema", required=True, help="Имя схемы Oracle (например: MYSCHEMA)")
     fetch_parser.add_argument("--object", default=None, help="Имя конкретного объекта (опционально)")
     fetch_parser.add_argument("--parse", action="store_true", help="После загрузки сразу запустить парсинг")
+    fetch_parser.add_argument(
+        "--with-table-meta",
+        action="store_true",
+        help="После парсинга синхронизировать описания таблиц и колонок",
+    )
     fetch_parser.set_defaults(func=cmd_fetch)
 
     parse_parser = subparsers.add_parser(
@@ -194,7 +222,21 @@ def build_parser() -> argparse.ArgumentParser:
     parse_parser.add_argument("--schema", required=True, help="Имя схемы Oracle")
     parse_parser.add_argument("--object", default=None, help="Имя конкретного объекта (опционально)")
     parse_parser.add_argument("--force", action="store_true", help="Перепарсить даже неизменённые объекты")
+    parse_parser.add_argument(
+        "--with-table-meta",
+        action="store_true",
+        help="После парсинга синхронизировать описания таблиц и колонок",
+    )
     parse_parser.set_defaults(func=cmd_parse)
+
+    table_meta_parser = subparsers.add_parser(
+        "sync-table-meta",
+        parents=[common_parser],
+        help="Загрузить описания таблиц и колонок для уже найденных table_access",
+    )
+    table_meta_parser.add_argument("--schema", required=True, help="Имя схемы Oracle")
+    table_meta_parser.add_argument("--object", default=None, help="Имя конкретного объекта (опционально)")
+    table_meta_parser.set_defaults(func=cmd_sync_table_meta)
 
     summarize_parser = subparsers.add_parser(
         "summarize",
@@ -205,9 +247,7 @@ def build_parser() -> argparse.ArgumentParser:
     summarize_parser.add_argument("--object", required=True, help="Имя объекта")
     summarize_parser.add_argument("--subprogram", default=None, help="Имя подпрограммы внутри пакета (опционально)")
     summarize_parser.add_argument("--depth", type=int, default=None, help="Максимальная глубина обхода зависимостей (по умолчанию: без ограничения)")
-    summarize_parser.add_argument("--kind", choices=["brief", "detailed"], default="brief", help="Тип суммари: brief (краткое) или detailed (подробное)")
-    summarize_parser.add_argument("--no-substatements", action="store_true", help="Не использовать анализ по подоператорам (классический режим)")
-    summarize_parser.add_argument("--force", action="store_true", help="Игнорировать кэш суммари")
+    summarize_parser.add_argument("--force", action="store_true", help="Игнорировать кэш описаний")
     summarize_parser.set_defaults(func=cmd_summarize)
 
     explain_parser = subparsers.add_parser(

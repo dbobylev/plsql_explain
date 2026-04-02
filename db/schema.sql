@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS call_edge (
     callee_object     TEXT NOT NULL,
     callee_subprogram TEXT,
     UNIQUE(caller_schema, caller_object, caller_type, caller_subprogram,
-           callee_object, callee_subprogram)
+           callee_schema, callee_object, callee_subprogram)
 );
 
 CREATE TABLE IF NOT EXISTS table_access (
@@ -43,7 +43,31 @@ CREATE TABLE IF NOT EXISTS table_access (
     table_schema   TEXT,
     table_name     TEXT NOT NULL,
     operation      TEXT NOT NULL,
-    UNIQUE(schema_name, object_name, object_type, subprogram, table_name, operation)
+    UNIQUE(schema_name, object_name, object_type, subprogram,
+           table_schema, table_name, operation)
+);
+
+CREATE TABLE IF NOT EXISTS table_metadata (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    schema_name   TEXT NOT NULL,
+    table_name    TEXT NOT NULL,
+    object_type   TEXT,
+    table_comment TEXT,
+    refreshed_at  TEXT NOT NULL,
+    UNIQUE(schema_name, table_name)
+);
+
+CREATE TABLE IF NOT EXISTS column_metadata (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    schema_name    TEXT NOT NULL,
+    table_name     TEXT NOT NULL,
+    column_name    TEXT NOT NULL,
+    column_id      INTEGER,
+    data_type      TEXT,
+    nullable       INTEGER,
+    column_comment TEXT,
+    refreshed_at   TEXT NOT NULL,
+    UNIQUE(schema_name, table_name, column_name)
 );
 
 CREATE TABLE IF NOT EXISTS subprogram (
@@ -77,28 +101,28 @@ CREATE TABLE IF NOT EXISTS substatement (
     UNIQUE(schema_name, object_name, object_type, subprogram, seq)
 );
 
-CREATE TABLE IF NOT EXISTS summary (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    schema_name    TEXT NOT NULL,
-    object_name    TEXT NOT NULL,
-    object_type    TEXT NOT NULL,
-    subprogram     TEXT NOT NULL DEFAULT '',
-    summary_kind   TEXT NOT NULL DEFAULT 'brief',
-    source_hash    TEXT NOT NULL,
-    summary_text   TEXT NOT NULL,
-    summarized_at  TEXT NOT NULL,
-    UNIQUE(schema_name, object_name, object_type, subprogram, summary_kind)
-);
+DROP TABLE IF EXISTS summary;
 
-CREATE TABLE IF NOT EXISTS chunk_analysis (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    schema_name    TEXT NOT NULL,
-    object_name    TEXT NOT NULL,
-    object_type    TEXT NOT NULL,
-    subprogram     TEXT NOT NULL DEFAULT '',
-    chunk_index    INTEGER NOT NULL,
-    chunk_hash     TEXT NOT NULL,
-    analysis_text  TEXT NOT NULL,
-    analyzed_at    TEXT NOT NULL,
-    UNIQUE(schema_name, object_name, object_type, subprogram, chunk_index)
+DROP TABLE IF EXISTS chunk_analysis;
+DROP TABLE IF EXISTS analysis_cache;
+
+CREATE TABLE IF NOT EXISTS node_description (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    schema_name     TEXT NOT NULL,
+    object_name     TEXT NOT NULL,
+    object_type     TEXT NOT NULL,
+    subprogram      TEXT NOT NULL DEFAULT '',
+    node_id         TEXT NOT NULL,
+    node_kind       TEXT NOT NULL,
+    statement_type  TEXT NOT NULL DEFAULT '',
+    title           TEXT NOT NULL DEFAULT '',
+    start_line      INTEGER NOT NULL DEFAULT 0,
+    end_line        INTEGER NOT NULL DEFAULT 0,
+    parent_node_id  TEXT,
+    position        INTEGER NOT NULL DEFAULT 0,
+    source_hash     TEXT NOT NULL,
+    description     TEXT NOT NULL,
+    prompt_version  TEXT NOT NULL,
+    described_at    TEXT NOT NULL,
+    UNIQUE(schema_name, object_name, object_type, subprogram, node_id, prompt_version)
 );

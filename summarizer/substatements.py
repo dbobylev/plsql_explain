@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import hashlib
+import re
 import sqlite3
 from dataclasses import dataclass, field
 from typing import Optional
@@ -16,7 +16,57 @@ class SubstatementNode:
     end_line: int
     source_text: str
     source_hash: str
-    children: list[SubstatementNode] = field(default_factory=list)
+    children: list["SubstatementNode"] = field(default_factory=list)
+
+
+_BLOCK_HEADER_TYPES = {
+    "BEGIN_END",
+    "EXCEPTION_HANDLER",
+    "IF",
+    "IF_ELSIF",
+    "IF_ELSE",
+    "LOOP_BASIC",
+    "LOOP_FOR",
+    "LOOP_WHILE",
+}
+_BODY_ONLY_TYPES = {"IF_THEN"}
+_OPAQUE_TYPES = {"CASE", "CASE_ELSE", "CASE_WHEN"}
+_SYNTHETIC_CLOSERS = {
+    "BEGIN_END": "END;",
+    "IF": "END IF;",
+    "LOOP_BASIC": "END LOOP;",
+    "LOOP_FOR": "END LOOP;",
+    "LOOP_WHILE": "END LOOP;",
+}
+_SEQUENCE_CONTAINER_TYPES = {
+    "BEGIN_END",
+    "LOOP_BASIC",
+    "LOOP_FOR",
+    "LOOP_WHILE",
+    "EXCEPTION_HANDLER",
+    "IF_THEN",
+    "IF_ELSIF",
+    "IF_ELSE",
+    "CASE_WHEN",
+    "CASE_ELSE",
+}
+_BRANCHING_CONTAINER_TYPES = {"IF", "CASE"}
+_SCOPE_LABELS = {
+    "BEGIN_END": "BEGIN-блок",
+    "IF": "IF-блок",
+    "IF_THEN": "Ветка THEN",
+    "IF_ELSIF": "Ветка ELSIF",
+    "IF_ELSE": "Ветка ELSE",
+    "LOOP_BASIC": "Цикл LOOP",
+    "LOOP_FOR": "Цикл FOR",
+    "LOOP_WHILE": "Цикл WHILE",
+    "CASE": "CASE-блок",
+    "CASE_WHEN": "Ветка WHEN",
+    "CASE_ELSE": "Ветка ELSE",
+    "EXCEPTION_HANDLER": "Обработчик исключения",
+    "DECLARE": "DECLARE-секция",
+    "FORALL": "FORALL-блок",
+}
 
 
 def load_substatement_tree(
@@ -66,7 +116,6 @@ def load_substatement_tree(
         else:
             roots.append(node)
 
-    # Sort children by position at every level
     for node in nodes.values():
         node.children.sort(key=lambda n: n.position)
     roots.sort(key=lambda n: n.position)
@@ -75,7 +124,6 @@ def load_substatement_tree(
 
 
 def _tree_source_len(node: SubstatementNode) -> int:
-    """Total source_text length of a node and all its descendants."""
     total = len(node.source_text)
     for child in node.children:
         total += _tree_source_len(child)
@@ -83,67 +131,71 @@ def _tree_source_len(node: SubstatementNode) -> int:
 
 
 def _tree_source_hashes(node: SubstatementNode) -> list[str]:
-    """Collect source_hash values from node and all descendants in DFS order."""
     result = [node.source_hash]
     for child in node.children:
         result.extend(_tree_source_hashes(child))
     return result
 
 
-def chunk_substatements(
-    roots: list[SubstatementNode],
-    max_chunk_tokens: int = 2000,
-) -> list[list[SubstatementNode]]:
+def render_substatement(node: SubstatementNode) -> str:
     """
-    Group root-level substatements into chunks for LLM analysis.
+    Reconstruct a readable code fragment for LLM analysis.
 
-    Each root node (with all its descendants) stays intact — compound
-    structures like IF + THEN/ELSIF/ELSE are never split.
-
-    EXCEPTION_HANDLER always starts a new chunk.
+    Some parser nodes keep only the block header in source_text (for example
+    BEGIN/IF/LOOP), while others already contain the full body text
+    (for example CASE/CASE_WHEN). This renderer avoids duplicating child
+    statements while still keeping compound blocks readable.
     """
-    if not roots:
-        return []
-
-    max_chunk_chars = max_chunk_tokens * 4  # rough token estimate
-
-    chunks: list[list[SubstatementNode]] = []
-    current_chunk: list[SubstatementNode] = []
-    current_chars = 0
-
-    for root in roots:
-        root_chars = _tree_source_len(root)
-
-        # EXCEPTION_HANDLER always starts a new chunk
-        if root.statement_type == "EXCEPTION_HANDLER" and current_chunk:
-            chunks.append(current_chunk)
-            current_chunk = []
-            current_chars = 0
-
-        # If adding this root exceeds budget and chunk is non-empty, flush
-        if current_chunk and current_chars + root_chars > max_chunk_chars:
-            chunks.append(current_chunk)
-            current_chunk = []
-            current_chars = 0
-
-        current_chunk.append(root)
-        current_chars += root_chars
-
-    if current_chunk:
-        chunks.append(current_chunk)
-
-    return chunks
+    return "\n".join(_render_substatement_parts(node)).strip()
 
 
-def compute_chunk_hash(chunk: list[SubstatementNode]) -> str:
-    """Compute a hash for a chunk based on all substatement source hashes."""
-    all_hashes: list[str] = []
-    for root in chunk:
-        all_hashes.extend(_tree_source_hashes(root))
-    combined = "|".join(all_hashes)
-    return hashlib.sha256(combined.encode()).hexdigest()
+def _render_substatement_parts(node: SubstatementNode) -> list[str]:
+    source = node.source_text.strip()
+
+    if node.statement_type in _OPAQUE_TYPES:
+        return [source] if source else []
+
+    if node.statement_type == "EXCEPTION_HANDLER":
+        parts = ["EXCEPTION"]
+        if source:
+            parts.append(source)
+        for child in node.children:
+            child_text = render_substatement(child)
+            if child_text:
+                parts.append(child_text)
+        return parts
+
+    if node.statement_type in _BLOCK_HEADER_TYPES:
+        parts: list[str] = [source] if source else []
+        for child in node.children:
+            child_text = render_substatement(child)
+            if child_text:
+                parts.append(child_text)
+        closer = _SYNTHETIC_CLOSERS.get(node.statement_type)
+        if closer:
+            parts.append(closer)
+        return parts
+
+    if node.statement_type in _BODY_ONLY_TYPES:
+        if not node.children:
+            return [source] if source else []
+        parts: list[str] = []
+        for child in node.children:
+            child_text = render_substatement(child)
+            if child_text:
+                parts.append(child_text)
+        return parts
+
+    if source:
+        return [source]
+
+    parts: list[str] = []
+    for child in node.children:
+        child_text = render_substatement(child)
+        if child_text:
+            parts.append(child_text)
+    return parts
 
 
 def total_source_length(roots: list[SubstatementNode]) -> int:
-    """Total source_text length across all root nodes and their descendants."""
     return sum(_tree_source_len(r) for r in roots)

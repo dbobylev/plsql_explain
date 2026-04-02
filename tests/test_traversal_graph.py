@@ -81,6 +81,41 @@ def _insert_table_access(
     conn.commit()
 
 
+def _insert_table_metadata(
+    conn: sqlite3.Connection,
+    schema: str,
+    table_name: str,
+    comment: str | None,
+    object_type: str = "TABLE",
+) -> None:
+    conn.execute(
+        "INSERT OR REPLACE INTO table_metadata "
+        "(schema_name, table_name, object_type, table_comment, refreshed_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (schema, table_name, object_type, comment, NOW),
+    )
+    conn.commit()
+
+
+def _insert_column_metadata(
+    conn: sqlite3.Connection,
+    schema: str,
+    table_name: str,
+    column_name: str,
+    column_id: int,
+    comment: str | None = None,
+    data_type: str = "VARCHAR2",
+    nullable: int = 1,
+) -> None:
+    conn.execute(
+        "INSERT OR REPLACE INTO column_metadata "
+        "(schema_name, table_name, column_name, column_id, data_type, nullable, column_comment, refreshed_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (schema, table_name, column_name, column_id, data_type, nullable, comment, NOW),
+    )
+    conn.commit()
+
+
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 def test_single_node_no_deps(mem_conn: sqlite3.Connection) -> None:
@@ -206,6 +241,22 @@ def test_table_accesses_attached(mem_conn: sqlite3.Connection) -> None:
     assert names == {"CUSTOMERS", "ORDERS"}
     ops = {a.operation for a in node.table_accesses}
     assert ops == {"SELECT", "INSERT"}
+
+
+def test_table_accesses_include_metadata(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "S", "PKG_A")
+    _insert_parse_result(mem_conn, "S", "PKG_A")
+    _insert_table_access(mem_conn, "S", "PKG_A", "PACKAGE BODY", None, "ORDERS", "SELECT")
+    _insert_table_metadata(mem_conn, "S", "ORDERS", "Заказы клиентов")
+    _insert_column_metadata(mem_conn, "S", "ORDERS", "ORDER_ID", 1, "Идентификатор", "NUMBER", 0)
+    _insert_column_metadata(mem_conn, "S", "ORDERS", "STATUS", 2, "Статус", "VARCHAR2", 1)
+
+    node = build_tree(mem_conn, "S", "PKG_A")
+
+    assert len(node.table_accesses) == 1
+    access = node.table_accesses[0]
+    assert access.table_comment == "Заказы клиентов"
+    assert [column.column_name for column in access.columns] == ["ORDER_ID", "STATUS"]
 
 
 def test_subprogram_filter(mem_conn: sqlite3.Connection) -> None:

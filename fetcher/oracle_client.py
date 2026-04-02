@@ -29,20 +29,30 @@ _QUERY_OBJECT = """
     ORDER BY owner, name, type, line
 """
 
+_QUERY_SCHEMA = """
+    SELECT owner, name, type, text
+    FROM dba_source
+    WHERE owner = :schema
+    ORDER BY owner, name, type, line
+"""
+
 
 def fetch_objects(
-    schema: str, object_name: str
+    schema: str, object_name: str | None
 ) -> Iterator[tuple[str, str, str, str]]:
     """
     Yields (schema, name, type, full_source_text) for each PL/SQL object
     matching the given object_name.
     """
     schema = schema.upper()
-    object_name = object_name.upper()
+    object_name = object_name.upper() if object_name else None
 
     with _connect() as conn:
         with conn.cursor() as cur:
-            cur.execute(_QUERY_OBJECT, schema=schema, object_name=object_name)
+            if object_name:
+                cur.execute(_QUERY_OBJECT, schema=schema, object_name=object_name)
+            else:
+                cur.execute(_QUERY_SCHEMA, schema=schema)
 
             current_key = None
             lines: list[str] = []

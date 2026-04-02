@@ -93,7 +93,7 @@ def test_always_uses_schema_only_query(mock_connect):
     conn, cursor = make_mock_connect([])
     mock_connect.return_value = conn
 
-    list(fetch_objects("S", object_name="PKG_FOO"))
+    list(fetch_objects("S", object_name=None))
 
     cursor.execute.assert_called_once()
-    assert ":name" not in cursor.execute.call_args.args[0]
+    assert "name = :object_name" not in cursor.execute.call_args.args[0]

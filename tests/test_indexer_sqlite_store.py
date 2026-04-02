@@ -46,6 +46,29 @@ def test_replace_call_edges_inserts_rows(mem_conn):
     assert count == 2
 
 
+def test_replace_call_edges_defaults_missing_schema_to_current_schema(mem_conn):
+    edges = [
+        CallEdge(caller_subprogram="PROC1", callee_schema=None, callee_object="PKG_B", callee_subprogram="GET"),
+    ]
+    store.replace_call_edges(mem_conn, "S", "PKG_A", "PACKAGE BODY", edges)
+    mem_conn.commit()
+
+    row = mem_conn.execute("SELECT callee_schema FROM call_edge").fetchone()
+    assert row["callee_schema"] == "S"
+
+
+def test_replace_call_edges_keeps_distinct_explicit_schemas(mem_conn):
+    edges = [
+        CallEdge(caller_subprogram="PROC1", callee_schema="HR", callee_object="PKG_B", callee_subprogram="GET"),
+        CallEdge(caller_subprogram="PROC1", callee_schema="CRM", callee_object="PKG_B", callee_subprogram="GET"),
+    ]
+    store.replace_call_edges(mem_conn, "S", "PKG_A", "PACKAGE BODY", edges)
+    mem_conn.commit()
+
+    rows = mem_conn.execute("SELECT callee_schema FROM call_edge ORDER BY callee_schema").fetchall()
+    assert [row["callee_schema"] for row in rows] == ["CRM", "HR"]
+
+
 def test_replace_call_edges_deletes_old_rows(mem_conn):
     edges_v1 = [
         CallEdge(caller_subprogram="P", callee_schema=None, callee_object="PKG_OLD", callee_subprogram=None),
@@ -74,6 +97,29 @@ def test_replace_table_accesses_inserts_rows(mem_conn):
 
     count = mem_conn.execute("SELECT COUNT(*) FROM table_access").fetchone()[0]
     assert count == 2
+
+
+def test_replace_table_accesses_defaults_missing_schema_to_current_schema(mem_conn):
+    accesses = [
+        TableAccess(subprogram="P", table_schema=None, table_name="ORDERS", operation="SELECT"),
+    ]
+    store.replace_table_accesses(mem_conn, "S", "PKG_A", "PACKAGE BODY", accesses)
+    mem_conn.commit()
+
+    row = mem_conn.execute("SELECT table_schema FROM table_access").fetchone()
+    assert row["table_schema"] == "S"
+
+
+def test_replace_table_accesses_keeps_distinct_explicit_schemas(mem_conn):
+    accesses = [
+        TableAccess(subprogram="P", table_schema="HR", table_name="ORDERS", operation="SELECT"),
+        TableAccess(subprogram="P", table_schema="CRM", table_name="ORDERS", operation="SELECT"),
+    ]
+    store.replace_table_accesses(mem_conn, "S", "PKG_A", "PACKAGE BODY", accesses)
+    mem_conn.commit()
+
+    rows = mem_conn.execute("SELECT table_schema FROM table_access ORDER BY table_schema").fetchall()
+    assert [row["table_schema"] for row in rows] == ["CRM", "HR"]
 
 
 def test_replace_table_accesses_deletes_old_rows(mem_conn):

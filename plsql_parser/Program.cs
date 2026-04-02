@@ -1,9 +1,13 @@
 using System;
+using System.Text;
 using System.Text.Json;
 using Antlr4.Runtime;
 using PlsqlParser.Grammar;
 using PlsqlParser.Model;
 using PlsqlParser.Parser;
+
+Console.InputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+Console.OutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
 var inputJson = Console.In.ReadToEnd();
 

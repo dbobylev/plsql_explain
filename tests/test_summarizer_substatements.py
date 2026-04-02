@@ -1,4 +1,4 @@
-"""Tests for summarizer.substatements — tree loading and chunking."""
+"""Tests for summarizer.substatements — tree loading and rendering."""
 from __future__ import annotations
 
 import sqlite3
@@ -7,9 +7,8 @@ import pytest
 
 from summarizer.substatements import (
     SubstatementNode,
-    chunk_substatements,
-    compute_chunk_hash,
     load_substatement_tree,
+    render_substatement,
     total_source_length,
 )
 
@@ -110,7 +109,7 @@ def test_load_null_subprogram(mem_conn: sqlite3.Connection) -> None:
     assert roots[0].source_text == "pkg_level"
 
 
-# ── chunk_substatements tests ────────────────────────────────────────────────
+# ── render_substatement tests ───────────────────────────────────────────────
 
 def _make_node(seq: int, statement_type: str, source_text: str,
                children: list[SubstatementNode] | None = None) -> SubstatementNode:
@@ -125,74 +124,33 @@ def _make_node(seq: int, statement_type: str, source_text: str,
     )
 
 
-def test_chunk_empty() -> None:
-    assert chunk_substatements([]) == []
-
-
-def test_chunk_single_small() -> None:
-    roots = [_make_node(0, "OTHER", "x := 1;")]
-    chunks = chunk_substatements(roots)
-    assert len(chunks) == 1
-    assert len(chunks[0]) == 1
-
-
-def test_chunk_splits_on_budget() -> None:
-    """Large roots should be split into separate chunks."""
-    big_text = "A" * 5000  # > 2000*4 = 8000 default char budget
-    roots = [
-        _make_node(0, "OTHER", big_text),
-        _make_node(1, "OTHER", big_text),
-    ]
-    chunks = chunk_substatements(roots)
-    assert len(chunks) == 2
-
-
-def test_chunk_exception_handler_starts_new_chunk() -> None:
-    roots = [
-        _make_node(0, "OTHER", "stmt1"),
-        _make_node(1, "OTHER", "stmt2"),
-        _make_node(2, "EXCEPTION_HANDLER", "WHEN OTHERS THEN NULL;"),
-        _make_node(3, "OTHER", "stmt3"),
-    ]
-    chunks = chunk_substatements(roots, max_chunk_tokens=10000)
-    # Even with large budget, EXCEPTION_HANDLER splits
-    assert len(chunks) == 2
-    assert chunks[0][-1].statement_type == "OTHER"
-    assert chunks[1][0].statement_type == "EXCEPTION_HANDLER"
-
-
-def test_chunk_keeps_compound_intact() -> None:
-    """An IF with children must stay in one chunk."""
-    import hashlib
-    child = SubstatementNode(
-        seq=1, parent_seq=0, position=0,
-        statement_type="IF_THEN",
-        start_line=2, end_line=5,
-        source_text="B" * 3000,
-        source_hash=hashlib.sha256(("B" * 3000).encode()).hexdigest(),
+def test_render_substatement_reconstructs_compound_without_duplicate_body() -> None:
+    if_node = _make_node(
+        0,
+        "IF",
+        "IF v_res > 0 THEN",
+        children=[
+            _make_node(
+                1,
+                "IF_THEN",
+                "v_res := v_res + 1;",
+                children=[_make_node(2, "OTHER", "v_res := v_res + 1;")],
+            ),
+            _make_node(
+                3,
+                "IF_ELSE",
+                "ELSE",
+                children=[_make_node(4, "OTHER", "v_res := 0;")],
+            ),
+        ],
     )
-    root = _make_node(0, "IF", "A" * 3000, children=[child])
-    # Total: 6000 chars > default 8000 budget? Let's use small budget
-    chunks = chunk_substatements([root], max_chunk_tokens=500)
-    # Even with tiny budget, the root+child must be in one chunk
-    assert len(chunks) == 1
-    assert len(chunks[0]) == 1
-    assert chunks[0][0].statement_type == "IF"
 
+    rendered = render_substatement(if_node)
 
-# ── compute_chunk_hash tests ────────────────────────────────────────────────
-
-def test_chunk_hash_deterministic() -> None:
-    roots = [_make_node(0, "OTHER", "stmt1"), _make_node(1, "OTHER", "stmt2")]
-    h1 = compute_chunk_hash(roots)
-    h2 = compute_chunk_hash(roots)
-    assert h1 == h2
-
-
-def test_chunk_hash_changes_on_source_change() -> None:
-    r1 = [_make_node(0, "OTHER", "stmt1")]
-    r2 = [_make_node(0, "OTHER", "stmt2")]
-    assert compute_chunk_hash(r1) != compute_chunk_hash(r2)
+    assert "IF v_res > 0 THEN" in rendered
+    assert "ELSE" in rendered
+    assert "END IF;" in rendered
+    assert rendered.count("v_res := v_res + 1;") == 1
 
 
 # ── total_source_length tests ───────────────────────────────────────────────

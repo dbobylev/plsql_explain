@@ -27,7 +27,7 @@ flowchart TD
     end
 
     subgraph Stage4 [" Этап 4 — LLM суммаризация "]
-        Engine["summarizer/engine.py<br>summarize_node()"] -->|запросы к кэшу| DB3[(SQLite<br>summary<br>chunk_analysis)]
+        Engine["summarizer/engine.py<br>summarize_node()"] -->|запросы к кэшу| DB3[(SQLite<br>summary<br>analysis_cache)]
         Engine -->|промпт| LLM["OpenAI-совместимый<br>LLM API"]
         LLM -->|текст| Engine
         Engine -->|сохранение| DB3
@@ -55,13 +55,12 @@ flowchart TD
 
     SizeCheck -->|нет| LLMC["LLM<br>— полный исходник →<br>summary"]
 
-    SizeCheck -->|да| S1["Чанк 1"]
-    S1 --> LLM1["LLM → analysis 1"]
-    LLM1 -->|контекст| S2["Чанк 2"]
-    S2 --> LLM2["LLM → analysis 2"]
-    LLM2 -->|контекст| S3["Чанк 3"]
-    S3 --> LLM3["LLM → analysis 3"]
-    LLM3 --> Agg["LLM → агрегация"]
+    SizeCheck -->|да| Plan["Планировщик<br>AnalysisUnit tree"]
+    Plan --> Leaf["Leaf unit"]
+    Leaf --> LeafLLM["LLM → leaf analysis"]
+    LeafLLM --> Branch["Агрегация ветки"]
+    Branch --> Block["Агрегация блока"]
+    Block --> Agg["LLM → summary метода"]
 
     Agg --> Persist["SQLite кэш"]
     LLMC --> Persist
@@ -69,4 +68,4 @@ flowchart TD
 ```
 
 > **Иерархия** — суммари дочерних объектов (B, C) передаются в промпт родителя (A) как контекст.
-> **Substatements** — код объекта разбивается на чанки, каждый анализируется с накоплением контекста, финал агрегируется отдельным вызовом LLM.
+> **Substatements** — код объекта раскладывается в дерево `AnalysisUnit`, leaf-фрагменты анализируются отдельно, затем ветки и блоки агрегируются снизу вверх.

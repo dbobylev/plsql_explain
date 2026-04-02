@@ -30,16 +30,22 @@ LLM_MODEL=gpt-4o
 
 ```bash
 # Fetch schema from Oracle into SQLite
-python main.py fetch --schema MYSCHEMA [--object pkg_name] [--parse]
+python main.py fetch --schema MYSCHEMA [--object pkg_name] [--parse] [--with-table-meta]
 
 # Parse fetched objects with C# ANTLR4 parser (builds call graph)
-python main.py parse --schema MYSCHEMA [--object pkg_name] [--force]
+python main.py parse --schema MYSCHEMA [--object pkg_name] [--force] [--with-table-meta]
+
+# Sync table/column metadata from Oracle for discovered table_access references
+python main.py sync-table-meta --schema MYSCHEMA [--object pkg_name]
 
 # Display dependency tree without LLM
-python main.py explain --schema MYSCHEMA --object pkg_name [--subprogram proc_name]
+python main.py explain --schema MYSCHEMA --object pkg_name [--subprogram proc_name] [--depth N] [--verbose]
 
-# Generate hierarchical LLM summaries
-python main.py summarize --schema MYSCHEMA --object pkg_name [--subprogram proc_name] [--force]
+# Generate hierarchical LLM summaries (output written to rusult_summary/ dir)
+python main.py summarize --schema MYSCHEMA --object pkg_name [--subprogram proc_name] [--force] [--kind brief|detailed] [--no-substatements] [--depth N]
+
+# Run C# parser on an arbitrary PL/SQL snippet for debugging
+python main.py debug [--source-file file.sql | --source "..."] [--json] [--output file]
 ```
 
 ## Build the C# Parser
@@ -90,8 +96,14 @@ All four stages are fully implemented:
 **Stage 4 — LLM Summarization** (`summarizer/`)
 - `engine.py`: Post-order DFS (children summarized first); SQLite cache checked by source hash; in-memory `_cache` dict deduplicates diamond dependencies within a single call
 - `extractor.py`: State machine (`FIND_HEADER → FIND_IS → COUNT_BEGIN_END`) extracts individual subprogram bodies from package source; falls back to full source
-- `prompts.py`: Russian-language prompt builder — includes object name/type, source fragment, table accesses, and child summaries
+- `substatements.py`: Splits complex SQL/PL/SQL into logical sub-statements for finer-grained LLM analysis; toggled via `--no-substatements`
+- `prompts.py`: Russian-language prompt builder — includes object name/type, source fragment, table accesses, child summaries, and optional table/column metadata
 - `llm_client.py`: Thin wrapper over `openai` library with lazy import (enables test mocking)
+
+**Stage 2b — Table Metadata** (`tablemeta/`)
+- `oracle_client.py`: Fetches table/column comments and types from Oracle `ALL_TAB_COMMENTS` / `ALL_COL_COMMENTS`
+- `sqlite_store.py`: Stores metadata; `list_referenced_tables` returns distinct tables found in `table_access`
+- Triggered via `--with-table-meta` on `fetch`/`parse`, or standalone `sync-table-meta` command; metadata is included in LLM prompts when available
 
 ### SQLite Schema (`db/schema.sql`)
 

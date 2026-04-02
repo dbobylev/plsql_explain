@@ -33,6 +33,11 @@ def test_fetch_parse_flag_set():
     assert args.parse is True
 
 
+def test_fetch_with_table_meta_flag():
+    args = build_parser().parse_args(["fetch", "--schema", "S", "--parse", "--with-table-meta"])
+    assert args.with_table_meta is True
+
+
 def test_parse_command_schema():
     args = build_parser().parse_args(["parse", "--schema", "MYSCHEMA"])
     assert args.schema == "MYSCHEMA"
@@ -45,6 +50,11 @@ def test_parse_command_with_object_and_force():
     args = build_parser().parse_args(["parse", "--schema", "S", "--object", "PKG_A", "--force"])
     assert args.object == "PKG_A"
     assert args.force is True
+
+
+def test_parse_command_with_table_meta():
+    args = build_parser().parse_args(["parse", "--schema", "S", "--with-table-meta"])
+    assert args.with_table_meta is True
 
 
 def test_parse_command_missing_schema_raises():
@@ -76,13 +86,17 @@ def test_explain_missing_object_raises():
         build_parser().parse_args(["explain", "--schema", "S"])
 
 
+def test_sync_table_meta_parses_args():
+    args = build_parser().parse_args(["sync-table-meta", "--schema", "S", "--object", "PKG_A"])
+    assert args.schema == "S"
+    assert args.object == "PKG_A"
+
+
 def test_summarize_parses_required_args():
     args = build_parser().parse_args(["summarize", "--schema", "MYSCHEMA", "--object", "PKG_A"])
     assert args.schema == "MYSCHEMA"
     assert args.object == "PKG_A"
     assert args.subprogram is None
-    assert args.kind == "brief"
-    assert args.no_substatements is False
     assert args.force is False
 
 
@@ -98,16 +112,11 @@ def test_summarize_parses_optional_args():
             "PROC_X",
             "--depth",
             "2",
-            "--kind",
-            "detailed",
-            "--no-substatements",
             "--force",
         ]
     )
     assert args.subprogram == "PROC_X"
     assert args.depth == 2
-    assert args.kind == "detailed"
-    assert args.no_substatements is True
     assert args.force is True
 
 
@@ -126,21 +135,30 @@ def test_build_summary_path_uses_root_when_subprogram_missing():
 
 
 def test_cmd_summarize_writes_summary_to_markdown_file(tmp_path, monkeypatch):
+    from summarizer.description_tree import DescriptionNode
+
     output_path = tmp_path / "rusult_summary" / "summary_s_pkg_a_proc_x_20260401_123456.md"
     args = build_parser().parse_args(
         ["summarize", "--schema", "S", "--object", "PKG_A", "--subprogram", "PROC_X"]
     )
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
 
+    mock_tree = DescriptionNode(
+        node_id="test/root", node_kind="method_root", statement_type="METHOD",
+        title="PKG_A.PROC_X", source_text="", start_line=1, end_line=10,
+        description="итоговое описание",
+    )
+
     with patch("main.ensure_logging_configured"), \
          patch("dotenv.load_dotenv"), \
-         patch("traversal.graph.build_tree", return_value=object()), \
          patch("summarizer.llm_client.LlmClient", return_value=object()), \
-         patch("summarizer.engine.summarize_node", return_value="итоговое суммари"), \
+         patch("summarizer.tree_describer.describe_tree", return_value=mock_tree), \
          patch("main.build_summary_path", return_value=output_path):
         cmd_summarize(args)
 
-    assert output_path.read_text(encoding="utf-8") == "итоговое суммари"
+    content = output_path.read_text(encoding="utf-8")
+    assert "PKG_A.PROC_X" in content
+    assert "итоговое описание" in content
 
 
 def test_debug_defaults():
