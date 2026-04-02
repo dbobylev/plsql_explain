@@ -1,0 +1,14 @@
+plsql_explain
+Copyright 2026 Dbobylev
+
+This project is licensed under the Apache License, Version 2.0.
+
+This repository includes PL/SQL grammar sources and generated artifacts
+derived from the ANTLR grammars-v4 project:
+
+- plsql_parser/Grammar/PlSqlLexer.g4
+- plsql_parser/Grammar/PlSqlParser.g4
+- generated files in plsql_parser/Grammar/ produced from those grammars
+
+Those grammar sources carry their own copyright notices and are licensed
+under the Apache License, Version 2.0.
