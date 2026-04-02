@@ -35,6 +35,7 @@ class DescriptionNode:
     subprogram: str = ""
     source_hash: str = ""
     prompt_context: str = ""
+    analysis_run_id: str = ""
 
 
 def _node_prefix(schema: str, obj: str, sub: Optional[str]) -> str:

@@ -101,13 +101,34 @@ CREATE TABLE IF NOT EXISTS substatement (
     UNIQUE(schema_name, object_name, object_type, subprogram, seq)
 );
 
-DROP TABLE IF EXISTS summary;
+CREATE TABLE IF NOT EXISTS analysis_run (
+    run_id         TEXT PRIMARY KEY,
+    schema_name    TEXT NOT NULL,
+    object_name    TEXT NOT NULL,
+    object_type    TEXT NOT NULL,
+    subprogram     TEXT NOT NULL DEFAULT '',
+    prompt_version TEXT NOT NULL,
+    status         TEXT NOT NULL,
+    started_at     TEXT NOT NULL,
+    finished_at    TEXT,
+    error_message  TEXT
+);
 
-DROP TABLE IF EXISTS chunk_analysis;
-DROP TABLE IF EXISTS analysis_cache;
+CREATE TABLE IF NOT EXISTS analysis_cache (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    prompt_hash    TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    source_hash    TEXT NOT NULL,
+    node_kind      TEXT NOT NULL,
+    statement_type TEXT NOT NULL DEFAULT '',
+    description    TEXT NOT NULL,
+    described_at   TEXT NOT NULL,
+    UNIQUE(prompt_hash, prompt_version)
+);
 
 CREATE TABLE IF NOT EXISTS node_description (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id          TEXT NOT NULL,
     schema_name     TEXT NOT NULL,
     object_name     TEXT NOT NULL,
     object_type     TEXT NOT NULL,
@@ -124,5 +145,5 @@ CREATE TABLE IF NOT EXISTS node_description (
     description     TEXT NOT NULL,
     prompt_version  TEXT NOT NULL,
     described_at    TEXT NOT NULL,
-    UNIQUE(schema_name, object_name, object_type, subprogram, node_id, prompt_version)
+    UNIQUE(run_id, node_id)
 );

@@ -13,8 +13,10 @@ from summarizer.tree_describer import (
     _populate_descriptions,
     describe_tree,
     render_tree,
+    render_tree_from_run,
 )
 from summarizer.tree_prompts import PROMPT_VERSION
+from summarizer.tree_store import create_analysis_run
 from traversal.models import DependencyNode
 
 
@@ -91,11 +93,24 @@ def test_populate_descriptions_calls_llm_for_leaf(mem_conn: sqlite3.Connection) 
 
     dep = _ok_node("PKG_A")
     tree = build_description_tree(mem_conn, dep)
+    run_id = create_analysis_run(mem_conn, "S", "PKG_A", "PACKAGE BODY", None, PROMPT_VERSION)
 
     client = MagicMock()
     client.complete.return_value = "Присваивает v_x значение 1"
 
-    _populate_descriptions(mem_conn, tree, client, "S", "PKG_A", "PACKAGE BODY", None, force=False)
+    _populate_descriptions(
+        mem_conn,
+        tree,
+        client,
+        "S",
+        "PKG_A",
+        "PACKAGE BODY",
+        None,
+        force=False,
+        run_id=run_id,
+        parent_node_id=None,
+        position=0,
+    )
 
     assert tree.children[0].description == "Присваивает v_x значение 1"
     assert tree.description  # method_root also described
@@ -114,6 +129,7 @@ def test_populate_descriptions_bottom_up_order(mem_conn: sqlite3.Connection) -> 
 
     dep = _ok_node("PKG_A")
     tree = build_description_tree(mem_conn, dep)
+    run_id = create_analysis_run(mem_conn, "S", "PKG_A", "PACKAGE BODY", None, PROMPT_VERSION)
 
     call_order = []
     client = MagicMock()
@@ -124,7 +140,19 @@ def test_populate_descriptions_bottom_up_order(mem_conn: sqlite3.Connection) -> 
 
     client.complete.side_effect = track_call
 
-    _populate_descriptions(mem_conn, tree, client, "S", "PKG_A", "PACKAGE BODY", None, force=False)
+    _populate_descriptions(
+        mem_conn,
+        tree,
+        client,
+        "S",
+        "PKG_A",
+        "PACKAGE BODY",
+        None,
+        force=False,
+        run_id=run_id,
+        parent_node_id=None,
+        position=0,
+    )
 
     # leaf (IF_THEN) should be called before parent (IF) before root
     assert client.complete.call_count == 3
@@ -136,9 +164,22 @@ def test_stub_node_not_sent_to_llm(mem_conn: sqlite3.Connection) -> None:
         subprogram=None, status="missing", error_message=None,
     )
     tree = build_description_tree(mem_conn, dep)
+    run_id = create_analysis_run(mem_conn, "S", "PKG_MISSING", "", None, PROMPT_VERSION)
 
     client = MagicMock()
-    _populate_descriptions(mem_conn, tree, client, "S", "PKG_MISSING", "", None, force=False)
+    _populate_descriptions(
+        mem_conn,
+        tree,
+        client,
+        "S",
+        "PKG_MISSING",
+        "",
+        None,
+        force=False,
+        run_id=run_id,
+        parent_node_id=None,
+        position=0,
+    )
 
     client.complete.assert_not_called()
     assert tree.description  # has pre-set stub description
@@ -188,6 +229,8 @@ def test_describe_tree_end_to_end(mem_conn: sqlite3.Connection) -> None:
     # Check saved to DB
     rows = mem_conn.execute("SELECT * FROM node_description").fetchall()
     assert len(rows) >= 2  # at least root + one child
+    run_rows = mem_conn.execute("SELECT * FROM analysis_run").fetchall()
+    assert run_rows[0]["status"] == "completed"
 
 
 def test_cache_reuse(mem_conn: sqlite3.Connection) -> None:
@@ -212,6 +255,25 @@ def test_cache_reuse(mem_conn: sqlite3.Connection) -> None:
     assert tree2.children[0].description == "Описание"
 
 
+def test_identical_leaf_prompts_reuse_analysis_cache_within_run(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "PKG_A")
+    _insert_substatement(mem_conn, "S", "PKG_A", "PACKAGE BODY", "",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="v_x := 1;")
+    _insert_substatement(mem_conn, "S", "PKG_A", "PACKAGE BODY", "",
+                         seq=1, parent_seq=None, position=1,
+                         statement_type="OTHER", source_text="v_x := 1;")
+
+    client = MagicMock()
+    client.complete.side_effect = ["Лист", "Корень"]
+
+    tree = describe_tree(mem_conn, "S", "PKG_A", None, client)
+
+    assert client.complete.call_count == 2
+    assert tree.children[0].description == "Лист"
+    assert tree.children[1].description == "Лист"
+
+
 def test_force_bypasses_cache(mem_conn: sqlite3.Connection) -> None:
     _insert_source(mem_conn, "PKG_A")
     _insert_substatement(mem_conn, "S", "PKG_A", "PACKAGE BODY", "",
@@ -230,3 +292,55 @@ def test_force_bypasses_cache(mem_conn: sqlite3.Connection) -> None:
     call_count_2 = client.complete.call_count
 
     assert call_count_2 > call_count_1
+
+
+def test_render_tree_from_run_uses_persisted_rows(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "PKG_A")
+    _insert_substatement(mem_conn, "S", "PKG_A", "PACKAGE BODY", "",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="v_x := 1;")
+
+    client = MagicMock()
+    client.complete.return_value = "Описание"
+
+    tree = describe_tree(mem_conn, "S", "PKG_A", None, client)
+    output = render_tree_from_run(mem_conn, tree.analysis_run_id)
+
+    assert "PKG_A" in output
+    assert "Описание" in output
+
+
+def test_failed_run_is_marked_failed(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "PKG_A")
+    _insert_substatement(mem_conn, "S", "PKG_A", "PACKAGE BODY", "",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="v_x := 1;")
+
+    client = MagicMock()
+    client.complete.side_effect = RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        describe_tree(mem_conn, "S", "PKG_A", None, client)
+
+    run = mem_conn.execute("SELECT status, error_message FROM analysis_run").fetchone()
+    assert run["status"] == "failed"
+    assert "boom" in run["error_message"]
+
+
+def test_failed_run_does_not_overwrite_last_completed_tree(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "PKG_A")
+    _insert_substatement(mem_conn, "S", "PKG_A", "PACKAGE BODY", "",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="v_x := 1;")
+
+    ok_client = MagicMock()
+    ok_client.complete.return_value = "Описание"
+    completed_tree = describe_tree(mem_conn, "S", "PKG_A", None, ok_client)
+
+    bad_client = MagicMock()
+    bad_client.complete.side_effect = RuntimeError("boom")
+    with pytest.raises(RuntimeError):
+        describe_tree(mem_conn, "S", "PKG_A", None, bad_client, force=True)
+
+    output = render_tree_from_run(mem_conn, completed_tree.analysis_run_id)
+    assert "Описание" in output

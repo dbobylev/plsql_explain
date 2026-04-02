@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import sqlite3
 from typing import Optional
@@ -8,11 +9,15 @@ from summarizer.description_tree import DescriptionNode, build_description_tree
 from summarizer.llm_client import LlmClient
 from summarizer.tree_prompts import PROMPT_VERSION, build_prompt
 from summarizer.tree_store import (
-    get_cached_description,
-    save_tree,
+    create_analysis_run,
+    get_cached_analysis,
+    iter_run_nodes,
+    mark_analysis_run_completed,
+    mark_analysis_run_failed,
+    upsert_cached_analysis,
+    upsert_run_node_description,
 )
 from traversal.graph import build_tree
-from traversal.models import DependencyNode
 
 _logger = logging.getLogger(__name__)
 
@@ -48,9 +53,35 @@ def describe_tree(
 
     _logger.info("Дерево построено, генерация описаний...")
 
-    _populate_descriptions(conn, tree, client, schema, object_name, obj_type, subprogram, force)
+    run_id = create_analysis_run(
+        conn,
+        schema,
+        object_name,
+        obj_type,
+        subprogram,
+        PROMPT_VERSION,
+    )
+    tree.analysis_run_id = run_id
 
-    save_tree(conn, schema, object_name, obj_type, subprogram, tree, PROMPT_VERSION)
+    try:
+        _populate_descriptions(
+            conn,
+            tree,
+            client,
+            schema,
+            object_name,
+            obj_type,
+            subprogram,
+            force,
+            run_id=run_id,
+            parent_node_id=None,
+            position=0,
+        )
+    except Exception as exc:
+        mark_analysis_run_failed(conn, run_id, str(exc))
+        raise
+
+    mark_analysis_run_completed(conn, run_id)
 
     return tree
 
@@ -64,45 +95,165 @@ def _populate_descriptions(
     root_obj_type: str,
     root_subprogram: Optional[str],
     force: bool,
+    run_id: str,
+    parent_node_id: Optional[str],
+    position: int,
 ) -> None:
     """Post-order DFS: describe children first, then this node."""
-    for child in node.children:
+    for child_position, child in enumerate(node.children):
         _populate_descriptions(
-            conn, child, client, root_schema, root_object_name,
-            root_obj_type, root_subprogram, force,
-        )
-
-    # Stub nodes already have descriptions
-    if node.node_kind == "stub":
-        return
-
-    # Check cache
-    if not force:
-        cached = get_cached_description(
             conn,
+            child,
+            client,
             root_schema,
             root_object_name,
             root_obj_type,
             root_subprogram,
-            node.node_id,
+            force,
+            run_id=run_id,
+            parent_node_id=node.node_id,
+            position=child_position,
+        )
+        _compact_processed_subtree(child)
+
+    # Stub nodes already have descriptions
+    if node.node_kind == "stub":
+        upsert_run_node_description(
+            conn,
+            run_id,
+            root_schema,
+            root_object_name,
+            root_obj_type,
+            root_subprogram,
+            node,
+            parent_node_id,
+            position,
             PROMPT_VERSION,
         )
-        if cached:
-            cached_hash, cached_desc = cached
-            if cached_hash == node.source_hash:
-                node.description = cached_desc
-                _logger.debug("Cache hit: %s", node.node_id)
-                return
+        _release_prompt_payload(node)
+        return
 
     # Build prompt
     prompt = build_prompt(node)
     if prompt is None:
+        upsert_run_node_description(
+            conn,
+            run_id,
+            root_schema,
+            root_object_name,
+            root_obj_type,
+            root_subprogram,
+            node,
+            parent_node_id,
+            position,
+            PROMPT_VERSION,
+        )
+        _release_prompt_payload(node)
         return
 
     system_msg, user_msg = prompt
+    prompt_hash = _prompt_hash(system_msg, user_msg)
+
+    if not force:
+        cached_desc = get_cached_analysis(conn, prompt_hash, PROMPT_VERSION)
+        if cached_desc is not None:
+            node.description = cached_desc
+            _logger.debug("Analysis cache hit: %s", node.node_id)
+            upsert_run_node_description(
+                conn,
+                run_id,
+                root_schema,
+                root_object_name,
+                root_obj_type,
+                root_subprogram,
+                node,
+                parent_node_id,
+                position,
+                PROMPT_VERSION,
+            )
+            _release_prompt_payload(node)
+            return
+
     _logger.debug("LLM call for node: %s", node.node_id)
     node.description = client.complete(system_msg, user_msg)
     _logger.debug("LLM response for %s: %s", node.node_id, node.description[:100])
+    upsert_cached_analysis(
+        conn,
+        prompt_hash,
+        PROMPT_VERSION,
+        node.source_hash,
+        node.node_kind,
+        node.statement_type,
+        node.description,
+    )
+    upsert_run_node_description(
+        conn,
+        run_id,
+        root_schema,
+        root_object_name,
+        root_obj_type,
+        root_subprogram,
+        node,
+        parent_node_id,
+        position,
+        PROMPT_VERSION,
+    )
+    _release_prompt_payload(node)
+
+
+def _prompt_hash(system_msg: str, user_msg: str) -> str:
+    payload = f"{system_msg}\n---\n{user_msg}"
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _release_prompt_payload(node: DescriptionNode) -> None:
+    # The node description is already persisted at this point. Dropping the raw
+    # prompt payload reduces peak memory while keeping the tree shape intact.
+    node.source_text = ""
+    node.prompt_context = ""
+
+
+def _compact_processed_subtree(node: DescriptionNode) -> None:
+    _release_prompt_payload(node)
+
+
+def render_tree_from_run(conn: sqlite3.Connection, run_id: str) -> str:
+    rows = iter_run_nodes(conn, run_id)
+    if not rows:
+        return ""
+
+    nodes: dict[str, DescriptionNode] = {}
+    root: DescriptionNode | None = None
+    for row in rows:
+        node = DescriptionNode(
+            node_id=row["node_id"],
+            node_kind=row["node_kind"],
+            statement_type=row["statement_type"],
+            title=row["title"],
+            source_text="",
+            start_line=row["start_line"],
+            end_line=row["end_line"],
+            description=row["description"],
+            schema_name=row["schema_name"],
+            object_name=row["object_name"],
+            subprogram=row["subprogram"],
+            source_hash=row["source_hash"],
+            analysis_run_id=row["run_id"],
+        )
+        nodes[node.node_id] = node
+
+    for row in rows:
+        node = nodes[row["node_id"]]
+        parent_node_id = row["parent_node_id"]
+        if parent_node_id is None:
+            root = node
+            continue
+        nodes[parent_node_id].children.append(node)
+
+    if root is None:
+        return ""
+
+    return render_tree(root)
 
 
 def render_tree(

@@ -25,6 +25,9 @@ def init_db() -> None:
         conn.executescript(schema.read_text())
         _migrate_call_edge_table(conn)
         _migrate_table_access_table(conn)
+        _migrate_analysis_cache_table(conn)
+        _migrate_analysis_run_table(conn)
+        _migrate_node_description_table(conn)
 
 
 def _hash(text: str) -> str:
@@ -152,6 +155,205 @@ def _migrate_table_access_table(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_analysis_cache_table(conn: sqlite3.Connection) -> None:
+    expected_columns = (
+        "prompt_hash",
+        "prompt_version",
+    )
+    if _table_has_unique_index(conn, "analysis_cache", expected_columns):
+        return
+
+    columns = _table_columns(conn, "analysis_cache")
+    if not columns:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS analysis_cache (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                prompt_hash    TEXT NOT NULL,
+                prompt_version TEXT NOT NULL,
+                source_hash    TEXT NOT NULL,
+                node_kind      TEXT NOT NULL,
+                statement_type TEXT NOT NULL DEFAULT '',
+                description    TEXT NOT NULL,
+                described_at   TEXT NOT NULL,
+                UNIQUE(prompt_hash, prompt_version)
+            );
+            """
+        )
+        return
+
+    conn.executescript(
+        """
+        ALTER TABLE analysis_cache RENAME TO analysis_cache__old;
+
+        CREATE TABLE analysis_cache (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            prompt_hash    TEXT NOT NULL,
+            prompt_version TEXT NOT NULL,
+            source_hash    TEXT NOT NULL,
+            node_kind      TEXT NOT NULL,
+            statement_type TEXT NOT NULL DEFAULT '',
+            description    TEXT NOT NULL,
+            described_at   TEXT NOT NULL,
+            UNIQUE(prompt_hash, prompt_version)
+        );
+
+        DROP TABLE analysis_cache__old;
+        """
+    )
+
+
+def _migrate_analysis_run_table(conn: sqlite3.Connection) -> None:
+    columns = _table_columns(conn, "analysis_run")
+    if columns:
+        return
+
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS analysis_run (
+            run_id         TEXT PRIMARY KEY,
+            schema_name    TEXT NOT NULL,
+            object_name    TEXT NOT NULL,
+            object_type    TEXT NOT NULL,
+            subprogram     TEXT NOT NULL DEFAULT '',
+            prompt_version TEXT NOT NULL,
+            status         TEXT NOT NULL,
+            started_at     TEXT NOT NULL,
+            finished_at    TEXT,
+            error_message  TEXT
+        );
+        """
+    )
+
+
+def _migrate_node_description_table(conn: sqlite3.Connection) -> None:
+    columns = _table_columns(conn, "node_description")
+    if not columns:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS node_description (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id          TEXT NOT NULL,
+                schema_name     TEXT NOT NULL,
+                object_name     TEXT NOT NULL,
+                object_type     TEXT NOT NULL,
+                subprogram      TEXT NOT NULL DEFAULT '',
+                node_id         TEXT NOT NULL,
+                node_kind       TEXT NOT NULL,
+                statement_type  TEXT NOT NULL DEFAULT '',
+                title           TEXT NOT NULL DEFAULT '',
+                start_line      INTEGER NOT NULL DEFAULT 0,
+                end_line        INTEGER NOT NULL DEFAULT 0,
+                parent_node_id  TEXT,
+                position        INTEGER NOT NULL DEFAULT 0,
+                source_hash     TEXT NOT NULL,
+                description     TEXT NOT NULL,
+                prompt_version  TEXT NOT NULL,
+                described_at    TEXT NOT NULL,
+                UNIQUE(run_id, node_id)
+            );
+            """
+        )
+        return
+
+    expected_columns = ("run_id", "node_id")
+    if "run_id" in columns and _table_has_unique_index(conn, "node_description", expected_columns):
+        return
+
+    old_rows = conn.execute("SELECT * FROM node_description").fetchall()
+    conn.execute("ALTER TABLE node_description RENAME TO node_description__old")
+    conn.executescript(
+        """
+        CREATE TABLE node_description (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id          TEXT NOT NULL,
+            schema_name     TEXT NOT NULL,
+            object_name     TEXT NOT NULL,
+            object_type     TEXT NOT NULL,
+            subprogram      TEXT NOT NULL DEFAULT '',
+            node_id         TEXT NOT NULL,
+            node_kind       TEXT NOT NULL,
+            statement_type  TEXT NOT NULL DEFAULT '',
+            title           TEXT NOT NULL DEFAULT '',
+            start_line      INTEGER NOT NULL DEFAULT 0,
+            end_line        INTEGER NOT NULL DEFAULT 0,
+            parent_node_id  TEXT,
+            position        INTEGER NOT NULL DEFAULT 0,
+            source_hash     TEXT NOT NULL,
+            description     TEXT NOT NULL,
+            prompt_version  TEXT NOT NULL,
+            described_at    TEXT NOT NULL,
+            UNIQUE(run_id, node_id)
+        );
+        """
+    )
+
+    run_meta: dict[tuple[str, str, str, str, str], tuple[str, str]] = {}
+    for row in old_rows:
+        key = (
+            row["schema_name"],
+            row["object_name"],
+            row["object_type"],
+            row["subprogram"],
+            row["prompt_version"],
+        )
+        if key not in run_meta:
+            run_id = f"legacy::{_hash('|'.join(part or '' for part in key))}"
+            finished_at = row["described_at"]
+            run_meta[key] = (run_id, finished_at)
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO analysis_run
+                    (run_id, schema_name, object_name, object_type, subprogram,
+                     prompt_version, status, started_at, finished_at, error_message)
+                VALUES (?, ?, ?, ?, ?, ?, 'completed', ?, ?, NULL)
+                """,
+                (
+                    run_id,
+                    row["schema_name"],
+                    row["object_name"],
+                    row["object_type"],
+                    row["subprogram"],
+                    row["prompt_version"],
+                    finished_at,
+                    finished_at,
+                ),
+            )
+
+        run_id, _finished_at = run_meta[key]
+        conn.execute(
+            """
+            INSERT INTO node_description
+                (run_id, schema_name, object_name, object_type, subprogram,
+                 node_id, node_kind, statement_type, title,
+                 start_line, end_line, parent_node_id, position,
+                 source_hash, description, prompt_version, described_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                row["schema_name"],
+                row["object_name"],
+                row["object_type"],
+                row["subprogram"],
+                row["node_id"],
+                row["node_kind"],
+                row["statement_type"],
+                row["title"],
+                row["start_line"],
+                row["end_line"],
+                row["parent_node_id"],
+                row["position"],
+                row["source_hash"],
+                row["description"],
+                row["prompt_version"],
+                row["described_at"],
+            ),
+        )
+
+    conn.execute("DROP TABLE node_description__old")
+
+
 def _table_has_unique_index(
     conn: sqlite3.Connection,
     table_name: str,
@@ -169,3 +371,10 @@ def _table_has_unique_index(
         if columns == expected_columns:
             return True
     return False
+
+
+def _table_columns(conn: sqlite3.Connection, table_name: str) -> tuple[str, ...]:
+    return tuple(
+        row["name"]
+        for row in conn.execute(f"PRAGMA table_info('{table_name}')").fetchall()
+    )

@@ -8,8 +8,15 @@ import pytest
 from summarizer.description_tree import DescriptionNode
 from summarizer.tree_store import (
     clear_tree,
+    create_analysis_run,
     get_cached_description,
+    get_cached_analysis,
+    get_latest_completed_run_id,
+    iter_run_nodes,
+    mark_analysis_run_completed,
     save_tree,
+    upsert_cached_analysis,
+    upsert_run_node_description,
     upsert_node_description,
 )
 
@@ -99,3 +106,44 @@ def test_upsert_updates_existing(mem_conn: sqlite3.Connection) -> None:
     result = get_cached_description(mem_conn, "S", "PKG_A", "PACKAGE BODY", None, "test/root", "1")
     assert result is not None
     assert result[1] == "Обновлённое описание"
+
+
+def test_analysis_cache_roundtrip(mem_conn: sqlite3.Connection) -> None:
+    upsert_cached_analysis(
+        mem_conn,
+        prompt_hash="hash-1",
+        prompt_version="2",
+        source_hash="src-1",
+        node_kind="statement",
+        statement_type="OTHER",
+        description="Закэшировано",
+    )
+
+    result = get_cached_analysis(mem_conn, "hash-1", "2")
+    assert result == "Закэшировано"
+
+
+def test_run_specific_node_persistence(mem_conn: sqlite3.Connection) -> None:
+    run_id = create_analysis_run(mem_conn, "S", "PKG_A", "PACKAGE BODY", None, "2")
+    node = _node(description="По run_id")
+
+    upsert_run_node_description(
+        mem_conn,
+        run_id,
+        "S",
+        "PKG_A",
+        "PACKAGE BODY",
+        None,
+        node,
+        None,
+        0,
+        "2",
+    )
+    mark_analysis_run_completed(mem_conn, run_id)
+
+    latest_run = get_latest_completed_run_id(mem_conn, "S", "PKG_A", "PACKAGE BODY", None, "2")
+    rows = iter_run_nodes(mem_conn, run_id)
+
+    assert latest_run == run_id
+    assert len(rows) == 1
+    assert rows[0]["description"] == "По run_id"
