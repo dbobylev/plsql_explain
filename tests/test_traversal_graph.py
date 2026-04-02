@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from traversal.graph import build_tree
+from traversal.graph import build_tree, resolve_node_shallow
 from traversal.models import DependencyNode
 
 
@@ -361,3 +361,21 @@ def test_max_depth_none_unlimited(mem_conn: sqlite3.Connection) -> None:
     c = b.children[0]
     assert c.object_name == "PKG_C"
     assert c.status == "ok"
+
+
+def test_resolve_node_shallow_expands_only_one_level(mem_conn: sqlite3.Connection) -> None:
+    for name in ("PKG_A", "PKG_B", "PKG_C"):
+        _insert_source(mem_conn, "S", name)
+        _insert_parse_result(mem_conn, "S", name)
+
+    _insert_call_edge(mem_conn, "S", "PKG_A", "PACKAGE BODY", None, "PKG_B")
+    _insert_call_edge(mem_conn, "S", "PKG_B", "PACKAGE BODY", None, "PKG_C")
+    _insert_table_access(mem_conn, "S", "PKG_A", "PACKAGE BODY", None, "ORDERS", "SELECT")
+
+    node = resolve_node_shallow(mem_conn, "S", "PKG_A")
+
+    assert node.status == "ok"
+    assert len(node.table_accesses) == 1
+    assert len(node.children) == 1
+    assert node.children[0].object_name == "PKG_B"
+    assert node.children[0].children == []

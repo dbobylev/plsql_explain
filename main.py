@@ -66,7 +66,7 @@ def cmd_summarize(args: argparse.Namespace) -> None:
     import sqlite3
     from fetcher.sqlite_store import init_db
     from summarizer.llm_client import LlmClient
-    from summarizer.tree_describer import describe_tree, render_tree, render_tree_from_run
+    from summarizer.tree_describer import describe_tree_run, render_tree_from_run
 
     db_path = os.environ.get("SQLITE_PATH", "./data/plsql.db")
     _logger.debug(
@@ -81,7 +81,7 @@ def cmd_summarize(args: argparse.Namespace) -> None:
     conn.row_factory = sqlite3.Row
     try:
         client = LlmClient()
-        tree = describe_tree(
+        run_id = describe_tree_run(
             conn,
             args.schema,
             args.object,
@@ -90,8 +90,7 @@ def cmd_summarize(args: argparse.Namespace) -> None:
             force=args.force,
             max_depth=args.depth,
         )
-        run_id = getattr(tree, "analysis_run_id", "")
-        output = render_tree_from_run(conn, run_id) if run_id else render_tree(tree)
+        output = render_tree_from_run(conn, run_id)
     finally:
         conn.close()
     write_summary_output(args, output)

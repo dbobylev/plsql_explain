@@ -282,6 +282,8 @@ def build_description_tree(
     in_stack: Optional[set[tuple[str, str, str]]] = None,
     max_depth: Optional[int] = None,
     _depth: int = 0,
+    expand_calls: bool = True,
+    prefix_override: Optional[str] = None,
 ) -> DescriptionNode:
     """
     Build a DescriptionNode tree from a DependencyNode.
@@ -296,7 +298,7 @@ def build_description_tree(
     obj_name = dep_node.object_name
     obj_type = dep_node.object_type or ""
     sub = dep_node.subprogram or ""
-    prefix = _node_prefix(schema, obj_name, sub or None)
+    prefix = prefix_override or _node_prefix(schema, obj_name, sub or None)
 
     key = (schema.upper(), obj_name.upper(), sub.upper())
 
@@ -331,10 +333,11 @@ def build_description_tree(
         _substatement_to_desc_node(root, prefix) for root in roots
     ]
 
-    # Expand calls in leaf nodes
-    in_stack.add(key)
-    _expand_calls(conn, desc_children, dep_node, in_stack, max_depth, _depth)
-    in_stack.discard(key)
+    if expand_calls:
+        # Expand calls in leaf nodes
+        in_stack.add(key)
+        _expand_calls(conn, desc_children, dep_node, in_stack, max_depth, _depth)
+        in_stack.discard(key)
 
     # Compute combined source hash
     source_hash = _load_source_hash(conn, schema, obj_name, obj_type) or ""

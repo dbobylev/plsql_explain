@@ -206,6 +206,25 @@ def test_call_expansion(mem_conn: sqlite3.Connection) -> None:
     assert "PKG_B" in call_node.title
 
 
+def test_build_tree_without_call_expansion_keeps_method_local(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "PKG_A")
+    _insert_source(mem_conn, "PKG_B")
+
+    _insert_substatement(mem_conn, "S", "PKG_A", "PACKAGE BODY", "",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="PKG_B.DO_SOMETHING();")
+    _insert_substatement(mem_conn, "S", "PKG_B", "PACKAGE BODY", "",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="v_x := 1;")
+
+    dep = _ok_node("PKG_A", children=[_ok_node("PKG_B")])
+    tree = build_description_tree(mem_conn, dep, expand_calls=False)
+
+    assert tree.node_kind == "method_root"
+    assert len(tree.children) == 1
+    assert tree.children[0].children == []
+
+
 def test_repeated_call_sites_get_unique_node_ids(mem_conn: sqlite3.Connection) -> None:
     _insert_source(mem_conn, "PKG_A")
     _insert_source(mem_conn, "PKG_B")

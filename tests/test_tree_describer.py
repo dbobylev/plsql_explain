@@ -12,6 +12,7 @@ from summarizer.description_tree import DescriptionNode, build_description_tree
 from summarizer.tree_describer import (
     _populate_descriptions,
     describe_tree,
+    describe_tree_run,
     render_tree,
     render_tree_from_run,
 )
@@ -308,6 +309,57 @@ def test_render_tree_from_run_uses_persisted_rows(mem_conn: sqlite3.Connection) 
 
     assert "PKG_A" in output
     assert "Описание" in output
+
+
+def test_describe_tree_run_persists_without_materialized_return(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "PKG_A")
+    _insert_substatement(mem_conn, "S", "PKG_A", "PACKAGE BODY", "",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="v_x := 1;")
+
+    client = MagicMock()
+    client.complete.return_value = "Описание"
+
+    run_id = describe_tree_run(mem_conn, "S", "PKG_A", None, client)
+    output = render_tree_from_run(mem_conn, run_id)
+
+    assert run_id
+    assert "Описание" in output
+
+
+def test_describe_tree_run_resolves_deep_dependencies_lazily(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "PKG_A")
+    _insert_source(mem_conn, "PKG_B")
+    _insert_source(mem_conn, "PKG_C")
+
+    _insert_substatement(mem_conn, "S", "PKG_A", "PACKAGE BODY", "",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="PKG_B.DO_WORK();")
+    _insert_substatement(mem_conn, "S", "PKG_B", "PACKAGE BODY", "",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="PKG_C.DO_WORK();")
+    _insert_substatement(mem_conn, "S", "PKG_C", "PACKAGE BODY", "",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="v_x := 1;")
+
+    mem_conn.execute(
+        "INSERT INTO call_edge (caller_schema, caller_object, caller_type, caller_subprogram, callee_schema, callee_object, callee_subprogram) "
+        "VALUES ('S', 'PKG_A', 'PACKAGE BODY', NULL, 'S', 'PKG_B', NULL)"
+    )
+    mem_conn.execute(
+        "INSERT INTO call_edge (caller_schema, caller_object, caller_type, caller_subprogram, callee_schema, callee_object, callee_subprogram) "
+        "VALUES ('S', 'PKG_B', 'PACKAGE BODY', NULL, 'S', 'PKG_C', NULL)"
+    )
+    mem_conn.commit()
+
+    client = MagicMock()
+    client.complete.return_value = "Описание"
+
+    run_id = describe_tree_run(mem_conn, "S", "PKG_A", None, client)
+    output = render_tree_from_run(mem_conn, run_id)
+
+    assert "PKG_B" in output
+    assert "PKG_C" in output
 
 
 def test_failed_run_is_marked_failed(mem_conn: sqlite3.Connection) -> None:

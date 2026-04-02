@@ -10,6 +10,32 @@ from traversal.models import DependencyNode
 _logger = logging.getLogger(__name__)
 
 
+def resolve_node_shallow(
+    conn: sqlite3.Connection,
+    schema: str,
+    object_name: str,
+    subprogram: Optional[str] = None,
+    include_children: bool = True,
+) -> DependencyNode:
+    """
+    Resolve one dependency node without recursively expanding the full graph.
+
+    Intended for memory-sensitive callers such as the summarizer. The returned
+    node includes:
+    - current object's status and immediate table accesses
+    - direct callees as shallow DependencyNode items
+    - no recursive expansion of grandchildren
+    """
+    return _resolve_node(
+        conn,
+        schema,
+        object_name,
+        subprogram,
+        include_children=include_children,
+        include_table_accesses=True,
+    )
+
+
 def build_tree(
     conn: sqlite3.Connection,
     schema: str,
@@ -225,3 +251,64 @@ def _node_label(node: DependencyNode) -> str:
         name = node.object_name
     type_part = f" ({node.object_type})" if node.object_type else ""
     return f"{name}{type_part} [{node.status}]"
+
+
+def _resolve_node(
+    conn: sqlite3.Connection,
+    schema: str,
+    object_name: str,
+    subprogram: Optional[str],
+    include_children: bool,
+    include_table_accesses: bool,
+) -> DependencyNode:
+    info = sqlite_store.get_object_info(conn, schema, object_name, subprogram)
+    if info is None:
+        return DependencyNode(
+            schema_name=schema.upper(),
+            object_name=object_name.upper(),
+            object_type=None,
+            subprogram=subprogram,
+            status="missing",
+            error_message=None,
+        )
+
+    object_type, status, error_message = info
+    if status in ("wrapped", "error", "unindexed"):
+        return DependencyNode(
+            schema_name=schema.upper(),
+            object_name=object_name.upper(),
+            object_type=object_type,
+            subprogram=subprogram,
+            status=status,
+            error_message=error_message,
+        )
+
+    accesses = []
+    if include_table_accesses:
+        accesses = sqlite_store.get_table_accesses(conn, schema, object_name, object_type, subprogram)
+
+    children: list[DependencyNode] = []
+    if include_children:
+        edges = sqlite_store.get_call_edges(conn, schema, object_name, object_type, subprogram)
+        children = [
+            _resolve_node(
+                conn,
+                callee_schema if callee_schema else schema,
+                callee_object,
+                callee_subprogram,
+                include_children=False,
+                include_table_accesses=False,
+            )
+            for callee_schema, callee_object, callee_subprogram in edges
+        ]
+
+    return DependencyNode(
+        schema_name=schema.upper(),
+        object_name=object_name.upper(),
+        object_type=object_type,
+        subprogram=subprogram,
+        status="ok",
+        error_message=None,
+        table_accesses=accesses,
+        children=children,
+    )

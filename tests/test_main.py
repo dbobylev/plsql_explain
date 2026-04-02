@@ -135,24 +135,18 @@ def test_build_summary_path_uses_root_when_subprogram_missing():
 
 
 def test_cmd_summarize_writes_summary_to_markdown_file(tmp_path, monkeypatch):
-    from summarizer.description_tree import DescriptionNode
-
     output_path = tmp_path / "rusult_summary" / "summary_s_pkg_a_proc_x_20260401_123456.md"
     args = build_parser().parse_args(
         ["summarize", "--schema", "S", "--object", "PKG_A", "--subprogram", "PROC_X"]
     )
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
-
-    mock_tree = DescriptionNode(
-        node_id="test/root", node_kind="method_root", statement_type="METHOD",
-        title="PKG_A.PROC_X", source_text="", start_line=1, end_line=10,
-        description="итоговое описание",
-    )
+    rendered_output = "PKG_A.PROC_X — итоговое описание"
 
     with patch("main.ensure_logging_configured"), \
          patch("dotenv.load_dotenv"), \
          patch("summarizer.llm_client.LlmClient", return_value=object()), \
-         patch("summarizer.tree_describer.describe_tree", return_value=mock_tree), \
+         patch("summarizer.tree_describer.describe_tree_run", return_value="run-1"), \
+         patch("summarizer.tree_describer.render_tree_from_run", return_value=rendered_output), \
          patch("main.build_summary_path", return_value=output_path):
         cmd_summarize(args)
 
