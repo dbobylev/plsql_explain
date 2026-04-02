@@ -150,3 +150,88 @@ def upsert_chunk_analysis(
             (schema.upper(), name.upper(), obj_type, _norm(subprogram),
              chunk_index, chunk_hash, analysis_text, now),
         )
+
+
+def get_analysis_cache(
+    conn: sqlite3.Connection,
+    schema: str,
+    name: str,
+    obj_type: str,
+    subprogram: Optional[str],
+    unit_key: str,
+    unit_kind: str,
+    summary_kind: str,
+    planner_version: str,
+    prompt_version: str,
+) -> Optional[tuple[str, str]]:
+    """
+    Returns (unit_hash, analysis_text) if a cached recursive analysis exists.
+    """
+    row = conn.execute(
+        """
+        SELECT unit_hash, analysis_text
+        FROM analysis_cache
+        WHERE schema_name=? AND object_name=? AND object_type=? AND subprogram=?
+          AND unit_key=? AND unit_kind=? AND summary_kind=?
+          AND planner_version=? AND prompt_version=?
+        """,
+        (
+            schema.upper(),
+            name.upper(),
+            obj_type,
+            _norm(subprogram),
+            unit_key,
+            unit_kind,
+            summary_kind,
+            planner_version,
+            prompt_version,
+        ),
+    ).fetchone()
+    return (row[0], row[1]) if row else None
+
+
+def upsert_analysis_cache(
+    conn: sqlite3.Connection,
+    schema: str,
+    name: str,
+    obj_type: str,
+    subprogram: Optional[str],
+    unit_key: str,
+    unit_kind: str,
+    summary_kind: str,
+    planner_version: str,
+    prompt_version: str,
+    unit_hash: str,
+    analysis_text: str,
+) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    with conn:
+        conn.execute(
+            """
+            INSERT INTO analysis_cache
+                (schema_name, object_name, object_type, subprogram,
+                 unit_key, unit_kind, summary_kind,
+                 planner_version, prompt_version,
+                 unit_hash, analysis_text, analyzed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(schema_name, object_name, object_type, subprogram,
+                        unit_key, unit_kind, summary_kind, planner_version, prompt_version)
+            DO UPDATE SET unit_hash=excluded.unit_hash,
+                          analysis_text=excluded.analysis_text,
+                          analyzed_at=excluded.analyzed_at
+            """,
+            (
+                schema.upper(),
+                name.upper(),
+                obj_type,
+                _norm(subprogram),
+                unit_key,
+                unit_kind,
+                summary_kind,
+                planner_version,
+                prompt_version,
+                unit_hash,
+                analysis_text,
+                now,
+            ),
+        )

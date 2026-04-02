@@ -2,18 +2,26 @@ from __future__ import annotations
 
 from typing import Optional
 
-from summarizer.substatements import SubstatementNode
+from summarizer.substatements import AnalysisUnit, render_analysis_unit_source
 from traversal.models import DependencyNode
+
+PROMPT_VERSION = "2"
 
 SYSTEM_PROMPT = (
     "Ты аналитик PL/SQL кода Oracle. "
     "Кратко и точно описывай на русском языке что делает переданный объект."
 )
 
-SYSTEM_PROMPT_CHUNK = (
+SYSTEM_PROMPT_ANALYSIS = (
     "Ты аналитик PL/SQL кода Oracle. "
-    "Анализируй фрагменты кода последовательно, "
-    "отслеживая ключевые переменные и состояние."
+    "Анализируй фрагмент как часть более крупного блока, "
+    "сохраняй управляющий контекст и не теряй смысл ветвлений."
+)
+
+SYSTEM_PROMPT_AGGREGATION = (
+    "Ты аналитик PL/SQL кода Oracle. "
+    "Собирай итоговое описание из дочерних анализов, "
+    "сохраняя порядок выполнения, ветвления и побочные эффекты."
 )
 
 SYSTEM_PROMPT_DETAILED = (
@@ -31,47 +39,131 @@ def build_prompt(
     """
     Build (system_prompt, user_prompt) for the given node.
 
-    child_summaries keys: (object_name, subprogram) → summary_text
+    child_summaries keys: (object_name, subprogram) -> summary_text
     """
     parts: list[str] = []
 
-    # Header
-    if node.subprogram:
-        label = f"{node.schema_name}.{node.object_name}.{node.subprogram}"
-    else:
-        label = f"{node.schema_name}.{node.object_name}"
+    label = _node_label(node)
     obj_type = node.object_type or "UNKNOWN"
     parts.append(f"Объект: {label} ({obj_type})\n")
 
-    # Source code
     parts.append("Исходный код:")
     parts.append("```plsql")
     parts.append(source_fragment.strip())
     parts.append("```")
     parts.append("")
 
-    # Table accesses
-    if node.table_accesses:
-        parts.append("Обращения к таблицам:")
-        for ta in node.table_accesses:
-            schema_prefix = f"{ta.table_schema}." if ta.table_schema else ""
-            parts.append(f"- {schema_prefix}{ta.table_name} ({ta.operation})")
-        parts.append("")
+    _append_table_accesses(parts, node)
+    _append_child_summaries(parts, child_summaries)
 
-    # Child summaries
-    if child_summaries:
-        parts.append("Вызываемые объекты и их описания:")
-        for (obj_name, sub), text in child_summaries.items():
-            if sub:
-                ref = f"{obj_name}.{sub}"
-            else:
-                ref = obj_name
-            parts.append(f"- {ref}: {text}")
-        parts.append("")
-
-    parts.append("Напиши краткое описание (2–4 предложения) что делает данный объект.")
+    parts.append("Напиши краткое описание (2-4 предложения) что делает данный объект.")
 
     return SYSTEM_PROMPT, "\n".join(parts)
+
+
+def build_analysis_unit_prompt(
+    node: DependencyNode,
+    unit: AnalysisUnit,
+    child_summaries: dict[tuple[str, Optional[str]], str],
+) -> tuple[str, str]:
+    """Build prompt for a leaf code chunk produced by the recursive planner."""
+    parts: list[str] = []
+
+    label = _node_label(node)
+    obj_type = node.object_type or "UNKNOWN"
+    parts.append(f"Объект: {label} ({obj_type})\n")
+    parts.append(f"Область анализа: {unit.title}")
+    if len(unit.path) > 1:
+        parts.append(f"Путь: {_format_unit_path(unit)}")
+    if unit.parts_total > 1:
+        parts.append(f"Часть внутри области: {unit.part_no} из {unit.parts_total}")
+    parts.append("")
+
+    if unit.header_context:
+        parts.append("Структурный контекст:")
+        parts.append("```plsql")
+        parts.append("\n".join(unit.header_context))
+        parts.append("```")
+        parts.append("")
+
+    if unit.oversized:
+        parts.append(
+            "Примечание: этот фрагмент превышает целевой размер, "
+            "но ниже уже не делится без потери структуры."
+        )
+        parts.append("")
+
+    parts.append("Текущий фрагмент кода:")
+    parts.append("```plsql")
+    parts.append(render_analysis_unit_source(unit))
+    parts.append("```")
+    parts.append("")
+
+    _append_table_accesses(parts, node)
+    _append_child_summaries(parts, child_summaries)
+
+    parts.append(
+        "Проанализируй этот фрагмент как самостоятельную часть логики. Укажи:\n"
+        "1. Какие данные и переменные здесь ключевые\n"
+        "2. Что делает этот фрагмент пошагово\n"
+        "3. Какие условия, ветвления или циклы здесь важны\n"
+        "4. Какие обращения к данным и побочные эффекты присутствуют\n"
+        "5. Какие результаты этот фрагмент готовит для следующего кода"
+    )
+
+    return SYSTEM_PROMPT_ANALYSIS, "\n".join(parts)
+
+
+def build_aggregate_unit_prompt(
+    node: DependencyNode,
+    unit: AnalysisUnit,
+    child_analyses: list[tuple[AnalysisUnit, str]],
+    child_summaries: dict[tuple[str, Optional[str]], str],
+    summary_kind: str,
+) -> tuple[str, str]:
+    """Build prompt for aggregating child analyses into a higher-level summary."""
+    parts: list[str] = []
+
+    label = _node_label(node)
+    obj_type = node.object_type or "UNKNOWN"
+    parts.append(f"Объект: {label} ({obj_type})\n")
+    parts.append(f"Область агрегации: {unit.title}")
+    if len(unit.path) > 1:
+        parts.append(f"Путь: {_format_unit_path(unit)}")
+    parts.append("")
+
+    if unit.header_context and unit.unit_kind != "method":
+        parts.append("Контекст блока:")
+        parts.append("```plsql")
+        parts.append("\n".join(unit.header_context))
+        parts.append("```")
+        parts.append("")
+
+    parts.append("Дочерние анализы в порядке выполнения:")
+    for child, analysis in child_analyses:
+        parts.append(f"\n--- {child.title} ---")
+        parts.append(analysis)
+    parts.append("")
+
+    if unit.unit_kind == "method":
+        _append_child_summaries(parts, child_summaries)
+        if summary_kind == "detailed":
+            parts.append(
+                "Составь подробное описание объекта:\n"
+                "- Входные параметры и их назначение\n"
+                "- Последовательность действий с описанием каждого ключевого блока\n"
+                "- Ключевые условия, ветвления и циклы\n"
+                "- Обращения к таблицам и операции\n"
+                "- Обработка исключений\n"
+                "- Возвращаемые значения и побочные эффекты"
+            )
+            return SYSTEM_PROMPT_DETAILED, "\n".join(parts)
+
+        parts.append("Напиши краткое описание (2-4 предложения) что делает данный объект.")
+        return SYSTEM_PROMPT, "\n".join(parts)
+
+    parts.append(_aggregate_instruction(unit))
+    return SYSTEM_PROMPT_AGGREGATION, "\n".join(parts)
 
 
 def _node_label(node: DependencyNode) -> str:
@@ -80,112 +172,66 @@ def _node_label(node: DependencyNode) -> str:
     return f"{node.schema_name}.{node.object_name}"
 
 
-def _format_chunk_source(chunk: list[SubstatementNode]) -> str:
-    """Format chunk substatements with type annotations for the prompt."""
-    lines: list[str] = []
-    for root in chunk:
-        lines.append(f"-- [{root.statement_type}] (lines {root.start_line}-{root.end_line})")
-        lines.append(root.source_text.strip())
-        lines.append("")
-    return "\n".join(lines).rstrip()
+def _format_unit_path(unit: AnalysisUnit) -> str:
+    return " -> ".join(unit.path[1:]) if len(unit.path) > 1 else unit.title
 
 
-def build_chunk_prompt(
-    node: DependencyNode,
-    chunk: list[SubstatementNode],
-    previous_context: str,
+def _append_table_accesses(parts: list[str], node: DependencyNode) -> None:
+    if not node.table_accesses:
+        return
+    parts.append("Обращения к таблицам:")
+    for ta in node.table_accesses:
+        schema_prefix = f"{ta.table_schema}." if ta.table_schema else ""
+        parts.append(f"- {schema_prefix}{ta.table_name} ({ta.operation})")
+    parts.append("")
+
+
+def _append_child_summaries(
+    parts: list[str],
     child_summaries: dict[tuple[str, Optional[str]], str],
-) -> tuple[str, str]:
-    """Build prompt for analyzing a single chunk of substatements."""
-    parts: list[str] = []
-
-    label = _node_label(node)
-    obj_type = node.object_type or "UNKNOWN"
-    parts.append(f"Объект: {label} ({obj_type})\n")
-
-    if previous_context:
-        parts.append("Контекст из предыдущих фрагментов:")
-        parts.append(previous_context)
-        parts.append("")
-
-    parts.append("Текущий фрагмент:")
-    parts.append("```plsql")
-    parts.append(_format_chunk_source(chunk))
-    parts.append("```")
+) -> None:
+    if not child_summaries:
+        return
+    parts.append("Вызываемые объекты и их описания:")
+    for (obj_name, sub), text in child_summaries.items():
+        ref = f"{obj_name}.{sub}" if sub else obj_name
+        parts.append(f"- {ref}: {text}")
     parts.append("")
 
-    if node.table_accesses:
-        parts.append("Обращения к таблицам:")
-        for ta in node.table_accesses:
-            schema_prefix = f"{ta.table_schema}." if ta.table_schema else ""
-            parts.append(f"- {schema_prefix}{ta.table_name} ({ta.operation})")
-        parts.append("")
 
-    if child_summaries:
-        parts.append("Вызываемые объекты и их описания:")
-        for (obj_name, sub), text in child_summaries.items():
-            ref = f"{obj_name}.{sub}" if sub else obj_name
-            parts.append(f"- {ref}: {text}")
-        parts.append("")
+def _aggregate_instruction(unit: AnalysisUnit) -> str:
+    if unit.unit_kind == "branch":
+        return (
+            "Собери целостное описание этой ветки. "
+            "Сохрани порядок шагов, ключевые условия, обращения к данным и итоговый эффект ветки."
+        )
 
-    parts.append(
-        "Проанализируй этот фрагмент. Укажи:\n"
-        "1. Ключевые переменные и их назначение\n"
-        "2. Что делает этот фрагмент\n"
-        "3. Важные условия и ветвления\n"
-        "4. Обращения к данным"
+    if unit.statement_type == "IF":
+        return (
+            "Собери описание всего IF-блока. "
+            "Объясни, какие ветви существуют, по каким условиям они выбираются "
+            "и чем отличаются их действия."
+        )
+
+    if unit.statement_type in {"LOOP_BASIC", "LOOP_FOR", "LOOP_WHILE"}:
+        return (
+            "Собери описание этого цикла. "
+            "Укажи механизм итерации, действия тела, внутренние ветвления и побочные эффекты."
+        )
+
+    if unit.statement_type == "CASE":
+        return (
+            "Собери описание этого CASE-блока. "
+            "Укажи, какие варианты обрабатываются и чем отличаются ветви."
+        )
+
+    if unit.statement_type == "BEGIN_END":
+        return (
+            "Собери описание этого BEGIN-блока. "
+            "Сохрани порядок выполнения дочерних шагов и их роль в общей логике."
+        )
+
+    return (
+        "Собери цельное описание этого блока из дочерних анализов. "
+        "Сохрани порядок действий, условия, обращения к данным и важные побочные эффекты."
     )
-
-    return SYSTEM_PROMPT_CHUNK, "\n".join(parts)
-
-
-def build_brief_aggregation_prompt(
-    node: DependencyNode,
-    chunk_analyses: list[str],
-) -> tuple[str, str]:
-    """Build prompt for aggregating chunk analyses into a brief summary."""
-    parts: list[str] = []
-
-    label = _node_label(node)
-    obj_type = node.object_type or "UNKNOWN"
-    parts.append(f"Объект: {label} ({obj_type})\n")
-
-    parts.append("Полный анализ по фрагментам:")
-    for i, analysis in enumerate(chunk_analyses, 1):
-        parts.append(f"\n--- Фрагмент {i} ---")
-        parts.append(analysis)
-    parts.append("")
-
-    parts.append("Напиши краткое описание (2–4 предложения) что делает данный объект.")
-
-    return SYSTEM_PROMPT, "\n".join(parts)
-
-
-def build_detailed_aggregation_prompt(
-    node: DependencyNode,
-    chunk_analyses: list[str],
-) -> tuple[str, str]:
-    """Build prompt for aggregating chunk analyses into a detailed summary."""
-    parts: list[str] = []
-
-    label = _node_label(node)
-    obj_type = node.object_type or "UNKNOWN"
-    parts.append(f"Объект: {label} ({obj_type})\n")
-
-    parts.append("Полный анализ по фрагментам:")
-    for i, analysis in enumerate(chunk_analyses, 1):
-        parts.append(f"\n--- Фрагмент {i} ---")
-        parts.append(analysis)
-    parts.append("")
-
-    parts.append(
-        "Составь подробное описание объекта:\n"
-        "- Входные параметры и их назначение\n"
-        "- Последовательность действий с описанием каждого блока\n"
-        "- Ключевые условия и ветвления\n"
-        "- Обращения к таблицам и операции\n"
-        "- Обработка исключений\n"
-        "- Возвращаемые значения (если есть)"
-    )
-
-    return SYSTEM_PROMPT_DETAILED, "\n".join(parts)

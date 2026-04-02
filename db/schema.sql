@@ -102,3 +102,21 @@ CREATE TABLE IF NOT EXISTS chunk_analysis (
     analyzed_at    TEXT NOT NULL,
     UNIQUE(schema_name, object_name, object_type, subprogram, chunk_index)
 );
+
+CREATE TABLE IF NOT EXISTS analysis_cache (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    schema_name      TEXT NOT NULL,
+    object_name      TEXT NOT NULL,
+    object_type      TEXT NOT NULL,
+    subprogram       TEXT NOT NULL DEFAULT '',
+    unit_key         TEXT NOT NULL,
+    unit_kind        TEXT NOT NULL,
+    summary_kind     TEXT NOT NULL,
+    planner_version  TEXT NOT NULL,
+    prompt_version   TEXT NOT NULL,
+    unit_hash        TEXT NOT NULL,
+    analysis_text    TEXT NOT NULL,
+    analyzed_at      TEXT NOT NULL,
+    UNIQUE(schema_name, object_name, object_type, subprogram,
+           unit_key, unit_kind, summary_kind, planner_version, prompt_version)
+);

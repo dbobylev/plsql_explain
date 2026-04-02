@@ -10,6 +10,8 @@ from summarizer.substatements import (
     chunk_substatements,
     compute_chunk_hash,
     load_substatement_tree,
+    plan_substatement_analysis,
+    render_substatement,
     total_source_length,
 )
 
@@ -178,6 +180,132 @@ def test_chunk_keeps_compound_intact() -> None:
     assert len(chunks) == 1
     assert len(chunks[0]) == 1
     assert chunks[0][0].statement_type == "IF"
+
+
+def test_chunk_expands_top_level_begin_end_body() -> None:
+    declare = _make_node(0, "DECLARE", "v_res NUMBER;")
+    begin = _make_node(
+        1,
+        "BEGIN_END",
+        "BEGIN",
+        children=[
+            _make_node(2, "OTHER", "v_res := 1;"),
+            _make_node(
+                3,
+                "IF",
+                "IF v_res > 0 THEN",
+                children=[
+                    _make_node(
+                        4,
+                        "IF_THEN",
+                        "v_res := v_res + 1;",
+                        children=[_make_node(5, "OTHER", "v_res := v_res + 1;")],
+                    )
+                ],
+            ),
+        ],
+    )
+
+    chunks = chunk_substatements([declare, begin], max_chunk_tokens=1000)
+
+    assert len(chunks) == 1
+    assert [node.statement_type for node in chunks[0]] == ["DECLARE", "OTHER", "IF"]
+    assert all(node.statement_type != "BEGIN_END" for node in chunks[0])
+
+
+def test_chunk_splits_expanded_method_body_on_budget() -> None:
+    declare = _make_node(0, "DECLARE", "v_res NUMBER;")
+    begin = _make_node(
+        1,
+        "BEGIN_END",
+        "BEGIN",
+        children=[
+            _make_node(2, "OTHER", "A" * 3000),
+            _make_node(3, "OTHER", "B" * 3000),
+        ],
+    )
+
+    chunks = chunk_substatements([declare, begin], max_chunk_tokens=1000)
+
+    assert len(chunks) == 2
+    assert [node.statement_type for node in chunks[0]] == ["DECLARE", "OTHER"]
+    assert [node.statement_type for node in chunks[1]] == ["OTHER"]
+
+
+def test_render_substatement_reconstructs_compound_without_duplicate_body() -> None:
+    if_node = _make_node(
+        0,
+        "IF",
+        "IF v_res > 0 THEN",
+        children=[
+            _make_node(
+                1,
+                "IF_THEN",
+                "v_res := v_res + 1;",
+                children=[_make_node(2, "OTHER", "v_res := v_res + 1;")],
+            ),
+            _make_node(
+                3,
+                "IF_ELSE",
+                "ELSE",
+                children=[_make_node(4, "OTHER", "v_res := 0;")],
+            ),
+        ],
+    )
+
+    rendered = render_substatement(if_node)
+
+    assert "IF v_res > 0 THEN" in rendered
+    assert "ELSE" in rendered
+    assert "END IF;" in rendered
+    assert rendered.count("v_res := v_res + 1;") == 1
+
+
+def test_plan_large_if_splits_into_branch_parts() -> None:
+    if_node = _make_node(
+        0,
+        "IF",
+        "IF v_res > 0 THEN",
+        children=[
+            _make_node(
+                1,
+                "IF_THEN",
+                "then_body",
+                children=[
+                    _make_node(2, "OTHER", "A" * 2500),
+                    _make_node(3, "OTHER", "B" * 2500),
+                ],
+            ),
+            _make_node(
+                4,
+                "IF_ELSE",
+                "ELSE",
+                children=[
+                    _make_node(5, "OTHER", "C" * 2500),
+                    _make_node(6, "OTHER", "D" * 2500),
+                ],
+            ),
+        ],
+    )
+
+    plan = plan_substatement_analysis([if_node], max_chunk_tokens=1000)
+
+    if_block = plan.children[0]
+    assert if_block.unit_kind == "block"
+    assert if_block.statement_type == "IF"
+    assert [child.statement_type for child in if_block.children] == ["IF_THEN", "IF_ELSE"]
+
+    then_branch, else_branch = if_block.children
+    assert then_branch.unit_kind == "branch"
+    assert else_branch.unit_kind == "branch"
+    assert len(then_branch.children) == 2
+    assert len(else_branch.children) == 2
+    assert all(child.unit_kind == "code_chunk" for child in then_branch.children)
+    assert all(child.unit_kind == "code_chunk" for child in else_branch.children)
+    assert then_branch.header_context[-1] == "THEN"
+    assert else_branch.header_context[-1] == "ELSE"
+    assert [child.parts_total for child in then_branch.children] == [2, 2]
+    assert [child.parts_total for child in else_branch.children] == [2, 2]
 
 
 # ── compute_chunk_hash tests ────────────────────────────────────────────────

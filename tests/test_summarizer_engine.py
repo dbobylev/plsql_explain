@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from summarizer.engine import summarize_node
+from summarizer.engine import _summary_cache_hash, summarize_node
 from traversal.models import DependencyNode, TableAccessInfo
 
 NOW = datetime.now(timezone.utc).isoformat()
@@ -108,12 +108,13 @@ def test_leaf_node_emits_debug_logs(mem_conn: sqlite3.Connection, caplog: pytest
 def test_cache_hit_skips_llm(mem_conn: sqlite3.Connection) -> None:
     _insert_source(mem_conn, "PKG_A")
     _insert_parse_result(mem_conn, "PKG_A")
+    summary_hash = _summary_cache_hash("hash_PKG_A", "brief", "classic", "")
 
     # Pre-populate summary cache with matching hash
     mem_conn.execute(
         "INSERT INTO summary (schema_name, object_name, object_type, subprogram, "
-        "source_hash, summary_text, summarized_at) VALUES ('S', 'PKG_A', 'PACKAGE BODY', '', 'hash_PKG_A', 'кэш', ?)",
-        (NOW,),
+        "source_hash, summary_text, summarized_at) VALUES ('S', 'PKG_A', 'PACKAGE BODY', '', ?, 'кэш', ?)",
+        (summary_hash, NOW),
     )
     mem_conn.commit()
 
@@ -129,11 +130,12 @@ def test_cache_hit_skips_llm(mem_conn: sqlite3.Connection) -> None:
 def test_force_ignores_cache(mem_conn: sqlite3.Connection) -> None:
     _insert_source(mem_conn, "PKG_A")
     _insert_parse_result(mem_conn, "PKG_A")
+    summary_hash = _summary_cache_hash("hash_PKG_A", "brief", "classic", "")
 
     mem_conn.execute(
         "INSERT INTO summary (schema_name, object_name, object_type, subprogram, "
-        "source_hash, summary_text, summarized_at) VALUES ('S', 'PKG_A', 'PACKAGE BODY', '', 'hash_PKG_A', 'кэш', ?)",
-        (NOW,),
+        "source_hash, summary_text, summarized_at) VALUES ('S', 'PKG_A', 'PACKAGE BODY', '', ?, 'кэш', ?)",
+        (summary_hash, NOW),
     )
     mem_conn.commit()
 
@@ -335,6 +337,90 @@ def test_substatement_fallback_for_small_methods(mem_conn: sqlite3.Connection) -
     client.complete.assert_called_once()
 
 
+def test_chunk_prompt_includes_children_of_top_level_begin_end(mem_conn: sqlite3.Connection) -> None:
+    """Chunk prompts must include method body statements, not just the BEGIN wrapper."""
+    _insert_source(mem_conn, "PKG_BEGIN")
+    _insert_parse_result(mem_conn, "PKG_BEGIN")
+
+    _insert_substatement(mem_conn, "PKG_BEGIN", "PROC1", seq=0,
+                         parent_seq=None, position=0,
+                         statement_type="DECLARE", source_text="v_res NUMBER;")
+    _insert_substatement(mem_conn, "PKG_BEGIN", "PROC1", seq=1,
+                         parent_seq=None, position=1,
+                         statement_type="BEGIN_END", source_text="BEGIN")
+    _insert_substatement(mem_conn, "PKG_BEGIN", "PROC1", seq=2,
+                         parent_seq=1, position=0,
+                         statement_type="OTHER",
+                         source_text=("v_res := PACKAGE2.PROC2(p_name, p_val);\n" * 120).strip())
+
+    node = _ok_node("PKG_BEGIN", subprogram="PROC1")
+    chunk_prompts: list[str] = []
+
+    def fake_complete(system: str, user: str) -> str:
+        if "Проанализируй" in user:
+            chunk_prompts.append(user)
+            return "анализ чанка"
+        return "итоговое суммари"
+
+    client = MagicMock()
+    client.complete.side_effect = fake_complete
+
+    result = summarize_node(mem_conn, node, client, summary_kind="brief", use_substatements=True)
+
+    assert result == "итоговое суммари"
+    assert chunk_prompts
+    assert any("PACKAGE2.PROC2" in prompt for prompt in chunk_prompts)
+
+
+def test_large_if_is_analyzed_in_separate_then_else_parts(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "PKG_IF")
+    _insert_parse_result(mem_conn, "PKG_IF")
+
+    _insert_substatement(mem_conn, "PKG_IF", "PROC1", seq=0,
+                         parent_seq=None, position=0,
+                         statement_type="IF", source_text="IF v_res > 0 THEN")
+    _insert_substatement(mem_conn, "PKG_IF", "PROC1", seq=1,
+                         parent_seq=0, position=0,
+                         statement_type="IF_THEN", source_text="then_body")
+    _insert_substatement(mem_conn, "PKG_IF", "PROC1", seq=2,
+                         parent_seq=1, position=0,
+                         statement_type="OTHER", source_text="A" * 4500)
+    _insert_substatement(mem_conn, "PKG_IF", "PROC1", seq=3,
+                         parent_seq=1, position=1,
+                         statement_type="OTHER", source_text="B" * 4500)
+    _insert_substatement(mem_conn, "PKG_IF", "PROC1", seq=4,
+                         parent_seq=0, position=1,
+                         statement_type="IF_ELSE", source_text="ELSE")
+    _insert_substatement(mem_conn, "PKG_IF", "PROC1", seq=5,
+                         parent_seq=4, position=0,
+                         statement_type="OTHER", source_text="C" * 4500)
+    _insert_substatement(mem_conn, "PKG_IF", "PROC1", seq=6,
+                         parent_seq=4, position=1,
+                         statement_type="OTHER", source_text="D" * 4500)
+
+    node = _ok_node("PKG_IF", subprogram="PROC1")
+    leaf_prompts: list[str] = []
+
+    def fake_complete(system: str, user: str) -> str:
+        if "Текущий фрагмент кода:" in user:
+            leaf_prompts.append(user)
+            return "leaf analysis"
+        if "Напиши краткое описание" in user:
+            return "итоговое суммари"
+        return "aggregate analysis"
+
+    client = MagicMock()
+    client.complete.side_effect = fake_complete
+
+    result = summarize_node(mem_conn, node, client, summary_kind="brief", use_substatements=True)
+
+    assert result == "итоговое суммари"
+    assert len(leaf_prompts) == 4
+    assert sum("Часть внутри области: 1 из 2" in prompt for prompt in leaf_prompts) == 2
+    assert sum("Часть внутри области: 2 из 2" in prompt for prompt in leaf_prompts) == 2
+    assert sum("ELSE" in prompt for prompt in leaf_prompts) == 2
+
+
 def test_detailed_kind_aggregation(mem_conn: sqlite3.Connection) -> None:
     """summary_kind='detailed' uses detailed aggregation prompt."""
     _insert_source(mem_conn, "PKG_DET")
@@ -448,6 +534,38 @@ def test_chunk_cache_reused(mem_conn: sqlite3.Connection) -> None:
     assert result == "итоговое суммари 2"
     # Chunk analyses cached → only aggregation call
     assert call_count_2 < call_count_1
+
+
+def test_intermediate_analysis_cache_reused_across_summary_kinds(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "PKG_CACHE_KIND")
+    _insert_parse_result(mem_conn, "PKG_CACHE_KIND")
+
+    big_source = "E" * 2500
+    for i in range(2):
+        _insert_substatement(mem_conn, "PKG_CACHE_KIND", "PROC1", seq=i,
+                             parent_seq=None, position=i,
+                             statement_type="OTHER", source_text=big_source)
+
+    node = _ok_node("PKG_CACHE_KIND", subprogram="PROC1")
+
+    client1 = MagicMock()
+    client1.complete.side_effect = lambda s, u: "итог" if "краткое описание" in u else "анализ"
+    summarize_node(mem_conn, node, client1, summary_kind="brief", use_substatements=True, force=True)
+
+    call_count_2 = 0
+
+    def fake_complete_2(system: str, user: str) -> str:
+        nonlocal call_count_2
+        call_count_2 += 1
+        return "подробное суммари"
+
+    client2 = MagicMock()
+    client2.complete.side_effect = fake_complete_2
+
+    result = summarize_node(mem_conn, node, client2, summary_kind="detailed", use_substatements=True, force=True)
+
+    assert result == "подробное суммари"
+    assert call_count_2 == 1
 
 
 def test_summary_kind_cached_separately(mem_conn: sqlite3.Connection) -> None:
