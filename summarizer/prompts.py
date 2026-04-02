@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from summarizer.substatements import AnalysisUnit, render_analysis_unit_source
 from traversal.models import DependencyNode
 
-PROMPT_VERSION = "2"
+PROMPT_VERSION = "3"
 
 SYSTEM_PROMPT = (
     "Ты аналитик PL/SQL кода Oracle. "
@@ -53,8 +54,8 @@ def build_prompt(
     parts.append("```")
     parts.append("")
 
-    _append_table_accesses(parts, node)
-    _append_child_summaries(parts, child_summaries)
+    _append_table_accesses(parts, node, source_fragment)
+    _append_child_summaries(parts, node, child_summaries, source_fragment)
 
     parts.append("Напиши краткое описание (2-4 предложения) что делает данный объект.")
 
@@ -68,6 +69,8 @@ def build_analysis_unit_prompt(
 ) -> tuple[str, str]:
     """Build prompt for a leaf code chunk produced by the recursive planner."""
     parts: list[str] = []
+    unit_source = render_analysis_unit_source(unit)
+    reference_text = _build_reference_text(unit.header_context, unit_source)
 
     label = _node_label(node)
     obj_type = node.object_type or "UNKNOWN"
@@ -95,12 +98,12 @@ def build_analysis_unit_prompt(
 
     parts.append("Текущий фрагмент кода:")
     parts.append("```plsql")
-    parts.append(render_analysis_unit_source(unit))
+    parts.append(unit_source)
     parts.append("```")
     parts.append("")
 
-    _append_table_accesses(parts, node)
-    _append_child_summaries(parts, child_summaries)
+    _append_table_accesses(parts, node, reference_text)
+    _append_child_summaries(parts, node, child_summaries, reference_text)
 
     parts.append(
         "Проанализируй этот фрагмент как самостоятельную часть логики. Укажи:\n"
@@ -120,6 +123,7 @@ def build_aggregate_unit_prompt(
     child_analyses: list[tuple[AnalysisUnit, str]],
     child_summaries: dict[tuple[str, Optional[str]], str],
     summary_kind: str,
+    reference_text: Optional[str] = None,
 ) -> tuple[str, str]:
     """Build prompt for aggregating child analyses into a higher-level summary."""
     parts: list[str] = []
@@ -146,7 +150,7 @@ def build_aggregate_unit_prompt(
     parts.append("")
 
     if unit.unit_kind == "method":
-        _append_child_summaries(parts, child_summaries)
+        _append_child_summaries(parts, node, child_summaries, reference_text)
         if summary_kind == "detailed":
             parts.append(
                 "Составь подробное описание объекта:\n"
@@ -176,11 +180,16 @@ def _format_unit_path(unit: AnalysisUnit) -> str:
     return " -> ".join(unit.path[1:]) if len(unit.path) > 1 else unit.title
 
 
-def _append_table_accesses(parts: list[str], node: DependencyNode) -> None:
-    if not node.table_accesses:
+def _append_table_accesses(
+    parts: list[str],
+    node: DependencyNode,
+    reference_text: Optional[str] = None,
+) -> None:
+    table_accesses = _filter_table_accesses(node, reference_text)
+    if not table_accesses:
         return
     parts.append("Обращения к таблицам:")
-    for ta in node.table_accesses:
+    for ta in table_accesses:
         schema_prefix = f"{ta.table_schema}." if ta.table_schema else ""
         parts.append(f"- {schema_prefix}{ta.table_name} ({ta.operation})")
     parts.append("")
@@ -188,15 +197,83 @@ def _append_table_accesses(parts: list[str], node: DependencyNode) -> None:
 
 def _append_child_summaries(
     parts: list[str],
+    node: DependencyNode,
     child_summaries: dict[tuple[str, Optional[str]], str],
+    reference_text: Optional[str] = None,
 ) -> None:
-    if not child_summaries:
+    relevant_child_summaries = _filter_child_summaries(node, child_summaries, reference_text)
+    if not relevant_child_summaries:
         return
     parts.append("Вызываемые объекты и их описания:")
-    for (obj_name, sub), text in child_summaries.items():
+    for (obj_name, sub), text in relevant_child_summaries.items():
         ref = f"{obj_name}.{sub}" if sub else obj_name
         parts.append(f"- {ref}: {text}")
     parts.append("")
+
+
+def _filter_table_accesses(
+    node: DependencyNode,
+    reference_text: Optional[str],
+):
+    if reference_text is None:
+        return node.table_accesses
+    return [
+        ta
+        for ta in node.table_accesses
+        if any(
+            _contains_identifier_reference(reference_text, candidate)
+            for candidate in _table_reference_candidates(ta.table_schema, ta.table_name)
+        )
+    ]
+
+
+def _filter_child_summaries(
+    node: DependencyNode,
+    child_summaries: dict[tuple[str, Optional[str]], str],
+    reference_text: Optional[str],
+) -> dict[tuple[str, Optional[str]], str]:
+    if reference_text is None:
+        return child_summaries
+    filtered: dict[tuple[str, Optional[str]], str] = {}
+    for key, text in child_summaries.items():
+        if any(
+            _contains_identifier_reference(reference_text, candidate)
+            for candidate in _child_reference_candidates(node, key[0], key[1])
+        ):
+            filtered[key] = text
+    return filtered
+
+
+def _table_reference_candidates(table_schema: Optional[str], table_name: str) -> tuple[str, ...]:
+    if table_schema:
+        return (f"{table_schema}.{table_name}", table_name)
+    return (table_name,)
+
+
+def _child_reference_candidates(
+    node: DependencyNode,
+    obj_name: str,
+    subprogram: Optional[str],
+) -> tuple[str, ...]:
+    if subprogram:
+        if obj_name.upper() == node.object_name.upper():
+            return (f"{obj_name}.{subprogram}", subprogram)
+        return (f"{obj_name}.{subprogram}",)
+    return (obj_name,)
+
+
+def _contains_identifier_reference(reference_text: str, candidate: str) -> bool:
+    if not reference_text.strip():
+        return False
+    pattern = rf"(?<![A-Z0-9_$#]){re.escape(candidate)}(?![A-Z0-9_$#])"
+    return re.search(pattern, reference_text, flags=re.IGNORECASE) is not None
+
+
+def _build_reference_text(header_context: tuple[str, ...], body_text: str) -> str:
+    parts = [*header_context]
+    if body_text.strip():
+        parts.append(body_text)
+    return "\n".join(parts)
 
 
 def _aggregate_instruction(unit: AnalysisUnit) -> str:

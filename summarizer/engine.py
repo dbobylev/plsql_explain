@@ -20,7 +20,7 @@ from traversal.models import DependencyNode
 _STUB_STATUSES = {"missing", "cycle", "wrapped", "error", "unindexed"}
 _SUBSTATEMENT_THRESHOLD_CHARS = 4000
 _INTERMEDIATE_ANALYSIS_KIND = "analysis"
-_CLASSIC_SUMMARY_VERSION = "classic-v1"
+_CLASSIC_SUMMARY_VERSION = f"classic-p{prompts.PROMPT_VERSION}"
 _SUBSTATEMENT_SUMMARY_VERSION = f"substatements-v{PLANNER_VERSION}-p{prompts.PROMPT_VERSION}"
 _logger = logging.getLogger(__name__)
 
@@ -308,12 +308,14 @@ def _analyze_unit(
             for child in unit.children
         ]
         aggregate_child_summaries = child_summaries if unit.unit_kind == "method" else {}
+        reference_text = _load_node_source_fragment(conn, node) if unit.unit_kind == "method" else None
         system, user = prompts.build_aggregate_unit_prompt(
             node,
             unit,
             child_analyses,
             aggregate_child_summaries,
             summary_kind,
+            reference_text=reference_text,
         )
         analysis = client.complete(system, user)
 
@@ -355,10 +357,7 @@ def _classic_summarize(
         node.object_name,
         node.object_type,
     ) or ""
-    if node.subprogram:
-        fragment = extractor.extract_subprogram(source_text, node.subprogram)
-    else:
-        fragment = source_text
+    fragment = _extract_source_fragment(source_text, node.subprogram)
 
     _logger.debug(
         "Classic summary prepared: node=%s, source_length=%d, fragment_length=%d, child_summaries=%d, summary_kind=%s",
@@ -386,6 +385,25 @@ def _classic_summarize(
         system, user = prompts.build_prompt(node, fragment, child_summaries)
 
     return client.complete(system, user)
+
+
+def _load_node_source_fragment(
+    conn: sqlite3.Connection,
+    node: DependencyNode,
+) -> str:
+    source_text = sqlite_store.get_source_text(
+        conn,
+        node.schema_name,
+        node.object_name,
+        node.object_type,
+    ) or ""
+    return _extract_source_fragment(source_text, node.subprogram)
+
+
+def _extract_source_fragment(source_text: str, subprogram: Optional[str]) -> str:
+    if subprogram:
+        return extractor.extract_subprogram(source_text, subprogram)
+    return source_text
 
 
 def _summary_cache_hash(

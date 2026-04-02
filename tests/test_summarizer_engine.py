@@ -149,7 +149,7 @@ def test_force_ignores_cache(mem_conn: sqlite3.Connection) -> None:
 
 
 def test_child_summary_included_in_parent_prompt(mem_conn: sqlite3.Connection) -> None:
-    _insert_source(mem_conn, "PKG_A")
+    _insert_source(mem_conn, "PKG_A", source="BEGIN PKG_B(); END;")
     _insert_parse_result(mem_conn, "PKG_A")
     _insert_source(mem_conn, "PKG_B")
     _insert_parse_result(mem_conn, "PKG_B")
