@@ -150,6 +150,23 @@ def test_build_tree_nested_substatements(mem_conn: sqlite3.Connection) -> None:
     assert if_node.children[0].statement_type == "IF_THEN"
 
 
+def test_nested_substatement_prompt_context_keeps_only_local_header(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "PKG_A")
+    _insert_substatement(mem_conn, "S", "PKG_A", "PACKAGE BODY", "",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="IF", source_text="IF x > 0 THEN")
+    _insert_substatement(mem_conn, "S", "PKG_A", "PACKAGE BODY", "",
+                         seq=1, parent_seq=0, position=0,
+                         statement_type="IF_THEN", source_text="v_res := 1;")
+
+    dep = _ok_node("PKG_A")
+    tree = build_description_tree(mem_conn, dep)
+
+    if_node = tree.children[0]
+    assert if_node.source_text == "IF x > 0 THEN\nv_res := 1;\nEND IF;"
+    assert if_node.prompt_context == "IF x > 0 THEN"
+
+
 def test_stub_dep_produces_stub_node(mem_conn: sqlite3.Connection) -> None:
     dep = _stub_dep("PKG_MISSING", "missing")
     tree = build_description_tree(mem_conn, dep)

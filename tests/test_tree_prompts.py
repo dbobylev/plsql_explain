@@ -11,6 +11,7 @@ def _node(
     source_text: str = "v_x := 1;",
     title: str = "OTHER",
     children: list[DescriptionNode] | None = None,
+    prompt_context: str | None = None,
 ) -> DescriptionNode:
     return DescriptionNode(
         node_id="test/seq:0",
@@ -22,6 +23,7 @@ def _node(
         end_line=1,
         description="",
         children=children or [],
+        prompt_context=source_text if prompt_context is None else prompt_context,
     )
 
 
@@ -69,6 +71,25 @@ def test_branching_strategy() -> None:
     _, user = result
     assert "ветвлени" in user
     assert "Присваивает x значение 1" in user
+
+
+def test_non_leaf_prompt_uses_child_descriptions_instead_of_child_source() -> None:
+    child = _node(statement_type="IF_THEN", source_text="x := 1;")
+    child.description = "Присваивает x значение 1"
+    node = _node(
+        statement_type="IF",
+        source_text="IF x > 0 THEN\nx := 1;\nEND IF;",
+        prompt_context="IF x > 0 THEN",
+        children=[child],
+    )
+
+    result = build_prompt(node)
+
+    assert result is not None
+    _, user = result
+    assert "IF x > 0 THEN" in user
+    assert "Присваивает x значение 1" in user
+    assert "x := 1;\nEND IF;" not in user
 
 
 def test_loop_strategy() -> None:

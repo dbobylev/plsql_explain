@@ -34,6 +34,7 @@ class DescriptionNode:
     object_name: str = ""
     subprogram: str = ""
     source_hash: str = ""
+    prompt_context: str = ""
 
 
 def _node_prefix(schema: str, obj: str, sub: Optional[str]) -> str:
@@ -204,6 +205,7 @@ def _substatement_to_desc_node(
         description="",
         children=children,
         source_hash=node.source_hash,
+        prompt_context=_substatement_prompt_context(node, rendered),
     )
 
 
@@ -269,6 +271,7 @@ def _clone_with_rebased_ids(
         object_name=node.object_name,
         subprogram=node.subprogram,
         source_hash=node.source_hash,
+        prompt_context=node.prompt_context,
     )
 
 
@@ -483,6 +486,58 @@ def _compute_tree_hash(node: DescriptionNode) -> str:
         payload = f"{TREE_VERSION}|{node.node_kind}|{node.statement_type}|{node.source_text}"
         node.source_hash = hashlib.sha256(payload.encode()).hexdigest()
     return node.source_hash
+
+
+def _substatement_prompt_context(node: SubstatementNode, rendered: str) -> str:
+    """
+    Return prompt context for a substatement without embedding full child source.
+
+    Leaf nodes can use the fully rendered fragment. For interior nodes we keep
+    only local context (for example IF/LOOP headers) and let child descriptions
+    carry the nested behavior.
+    """
+    if not node.children:
+        return rendered
+
+    source = node.source_text.strip()
+    statement_type = node.statement_type.upper()
+
+    if statement_type in {
+        "BEGIN_END",
+        "IF",
+        "IF_ELSIF",
+        "IF_ELSE",
+        "LOOP_BASIC",
+        "LOOP_FOR",
+        "LOOP_WHILE",
+    }:
+        return source
+
+    if statement_type == "EXCEPTION_HANDLER":
+        if source:
+            return f"EXCEPTION\n{source}"
+        return "EXCEPTION"
+
+    if statement_type == "IF_THEN":
+        return "THEN"
+
+    if statement_type == "CASE":
+        header = _extract_prefix_through_keyword(source, "WHEN")
+        return header or "CASE"
+
+    if statement_type == "CASE_WHEN":
+        header = _extract_prefix_through_keyword(source, "THEN")
+        return header or "WHEN ... THEN"
+
+    if statement_type == "CASE_ELSE":
+        return "ELSE"
+
+    return source or statement_type
+
+
+def _extract_prefix_through_keyword(text: str, keyword: str) -> str:
+    match = re.search(rf"^(.*?\b{re.escape(keyword)}\b)", text, flags=re.IGNORECASE | re.DOTALL)
+    return match.group(1).strip() if match else ""
 
 
 def _load_source_text(

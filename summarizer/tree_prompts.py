@@ -4,7 +4,7 @@ from typing import Optional
 
 from summarizer.description_tree import DescriptionNode
 
-PROMPT_VERSION = "1"
+PROMPT_VERSION = "2"
 
 
 def _description_length_hint(n_children: int) -> str:
@@ -30,6 +30,13 @@ def _format_children_descriptions(node: DescriptionNode) -> str:
     return "\n".join(lines)
 
 
+def _format_prompt_context(title: str, text: str) -> str:
+    stripped = text.strip()
+    if not stripped:
+        return ""
+    return f"{title}:\n```\n{stripped}\n```\n\n"
+
+
 # ---------------------------------------------------------------------------
 # Strategy functions
 # ---------------------------------------------------------------------------
@@ -43,9 +50,10 @@ def _sql_strategy(node: DescriptionNode) -> tuple[str, str]:
     if node.children:
         children_text = _format_children_descriptions(node)
         hint = _description_length_hint(len(node.children))
+        context = _format_prompt_context("Локальный фрагмент", node.prompt_context)
         user = (
             f"Операция: {operation}\n"
-            f"Код:\n```\n{node.source_text}\n```\n\n"
+            f"{context}"
             f"Вложенные элементы:\n{children_text}\n\n"
             f"Укажи какие таблицы затрагиваются, какие данные выбираются/изменяются, "
             f"ключевые условия WHERE/JOIN.\n{hint}"
@@ -68,9 +76,10 @@ def _branching_strategy(node: DescriptionNode) -> tuple[str, str]:
     if node.children:
         children_text = _format_children_descriptions(node)
         hint = _description_length_hint(len(node.children))
+        context = _format_prompt_context("Условие/заголовок", node.prompt_context)
         user = (
             f"Конструкция: {node.statement_type}\n"
-            f"Условие/заголовок:\n```\n{node.source_text}\n```\n\n"
+            f"{context}"
             f"Ветви:\n{children_text}\n\n"
             f"Опиши логику ветвления и её назначение.\n{hint}"
         )
@@ -91,9 +100,10 @@ def _loop_strategy(node: DescriptionNode) -> tuple[str, str]:
     if node.children:
         children_text = _format_children_descriptions(node)
         hint = _description_length_hint(len(node.children))
+        context = _format_prompt_context("Заголовок", node.prompt_context)
         user = (
             f"Цикл: {node.statement_type}\n"
-            f"Заголовок:\n```\n{node.source_text}\n```\n\n"
+            f"{context}"
             f"Тело цикла:\n{children_text}\n\n"
             f"Опиши что итерируется и зачем.\n{hint}"
         )
@@ -114,9 +124,10 @@ def _exception_strategy(node: DescriptionNode) -> tuple[str, str]:
     if node.children:
         children_text = _format_children_descriptions(node)
         hint = _description_length_hint(len(node.children))
+        context = _format_prompt_context("Локальный фрагмент", node.prompt_context)
         user = (
             f"Обработчик исключений:\n"
-            f"Код:\n```\n{node.source_text}\n```\n\n"
+            f"{context}"
             f"Содержимое:\n{children_text}\n\n"
             f"Какие исключения перехватываются и как обрабатываются?\n{hint}"
         )
@@ -175,9 +186,10 @@ def _default_strategy(node: DescriptionNode) -> tuple[str, str]:
     if node.children:
         children_text = _format_children_descriptions(node)
         hint = _description_length_hint(len(node.children))
+        context = _format_prompt_context("Локальный фрагмент", node.prompt_context)
         user = (
             f"Тип: {node.statement_type}\n"
-            f"Код:\n```\n{node.source_text}\n```\n\n"
+            f"{context}"
             f"Содержимое:\n{children_text}\n\n"
             f"{hint}"
         )
