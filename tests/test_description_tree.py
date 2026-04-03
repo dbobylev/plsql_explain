@@ -130,6 +130,20 @@ def test_build_tree_with_substatements(mem_conn: sqlite3.Connection) -> None:
     assert tree.children[1].statement_type == "SQL_SELECT"
 
 
+def test_build_tree_statement_nodes_keep_subprogram(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "PKG_A")
+    _insert_substatement(mem_conn, "S", "PKG_A", "PACKAGE BODY", "PROC_MAIN",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="v_x := 1;")
+
+    dep = _ok_node("PKG_A", subprogram="PROC_MAIN")
+    tree = build_description_tree(mem_conn, dep)
+
+    assert tree.subprogram == "PROC_MAIN"
+    assert tree.children[0].subprogram == "PROC_MAIN"
+    assert tree.children[0].object_name == "PKG_A"
+
+
 def test_build_tree_nested_substatements(mem_conn: sqlite3.Connection) -> None:
     _insert_source(mem_conn, "PKG_A")
     _insert_substatement(mem_conn, "S", "PKG_A", "PACKAGE BODY", "",
@@ -204,6 +218,28 @@ def test_call_expansion(mem_conn: sqlite3.Connection) -> None:
     call_node = stmt.children[0]
     assert call_node.node_kind == "call"
     assert "PKG_B" in call_node.title
+
+
+def test_call_expansion_keeps_callee_subprogram_on_descendants(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "PKG_A")
+    _insert_source(mem_conn, "PKG_B")
+
+    _insert_substatement(mem_conn, "S", "PKG_A", "PACKAGE BODY", "PROC_MAIN",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="PKG_B.DO_WORK();")
+    _insert_substatement(mem_conn, "S", "PKG_B", "PACKAGE BODY", "DO_WORK",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="SQL_INSERT", source_text="INSERT INTO T VALUES(1);")
+
+    callee_dep = _ok_node("PKG_B", subprogram="DO_WORK")
+    dep = _ok_node("PKG_A", subprogram="PROC_MAIN", children=[callee_dep])
+
+    tree = build_description_tree(mem_conn, dep)
+
+    call_node = tree.children[0].children[0]
+    assert call_node.subprogram == "DO_WORK"
+    assert call_node.children[0].subprogram == "DO_WORK"
+    assert call_node.children[0].object_name == "PKG_B"
 
 
 def test_build_tree_without_call_expansion_keeps_method_local(mem_conn: sqlite3.Connection) -> None:

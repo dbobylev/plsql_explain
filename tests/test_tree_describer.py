@@ -20,6 +20,7 @@ from summarizer.tree_describer import (
 )
 from summarizer.tree_prompts import PROMPT_VERSION
 from summarizer.tree_store import create_analysis_run
+from summarizer.tree_store import upsert_run_node_description
 from traversal.models import DependencyNode
 
 
@@ -353,6 +354,53 @@ def test_render_tree_html_from_run_uses_persisted_rows(mem_conn: sqlite3.Connect
     assert "<html" in output
     assert "PKG_A" in output
     assert "Описание" in output
+
+
+def test_render_from_run_uses_actual_node_subprograms(mem_conn: sqlite3.Connection) -> None:
+    run_id = create_analysis_run(mem_conn, "S", "PKG_A", "PACKAGE BODY", "PROC_MAIN", PROMPT_VERSION)
+    root = DescriptionNode(
+        node_id="test/root",
+        node_kind="method_root",
+        statement_type="METHOD",
+        title="PROC_MAIN",
+        source_text="",
+        start_line=1,
+        end_line=10,
+        description="Корневое описание",
+        schema_name="S",
+        object_name="PKG_A",
+        subprogram="PROC_MAIN",
+        source_hash="root-hash",
+    )
+    child = DescriptionNode(
+        node_id="test/seq:0",
+        node_kind="statement",
+        statement_type="OTHER",
+        title="OTHER",
+        source_text="",
+        start_line=2,
+        end_line=2,
+        description="Дочернее описание",
+        schema_name="S",
+        object_name="PKG_B",
+        subprogram="DO_WORK",
+        source_hash="child-hash",
+    )
+
+    upsert_run_node_description(
+        mem_conn, run_id, "S", "PKG_A", "PACKAGE BODY", "PROC_MAIN", root, None, 0, PROMPT_VERSION
+    )
+    upsert_run_node_description(
+        mem_conn, run_id, "S", "PKG_A", "PACKAGE BODY", "PROC_MAIN", child, root.node_id, 0, PROMPT_VERSION
+    )
+
+    md_output = render_tree_from_run(mem_conn, run_id)
+    html_output = render_tree_html_from_run(mem_conn, run_id)
+
+    assert "1 PROC_MAIN L1-L10 [subprogram=PROC_MAIN]" in md_output
+    assert "1.1 OTHER L2 [subprogram=DO_WORK]" in md_output
+    assert "PROC_MAIN" in html_output
+    assert "DO_WORK" in html_output
 
 
 def test_describe_tree_end_to_end(mem_conn: sqlite3.Connection) -> None:

@@ -188,11 +188,14 @@ def _find_callees_in_source(
 def _substatement_to_desc_node(
     node: SubstatementNode,
     prefix: str,
+    schema_name: str,
+    object_name: str,
+    subprogram: str,
 ) -> DescriptionNode:
     """Convert a SubstatementNode to a DescriptionNode (without call expansion)."""
     rendered = render_substatement(node)
     children = [
-        _substatement_to_desc_node(child, prefix)
+        _substatement_to_desc_node(child, prefix, schema_name, object_name, subprogram)
         for child in node.children
     ]
     return DescriptionNode(
@@ -205,6 +208,9 @@ def _substatement_to_desc_node(
         end_line=node.end_line,
         description="",
         children=children,
+        schema_name=schema_name,
+        object_name=object_name,
+        subprogram=subprogram,
         source_hash=node.source_hash,
         prompt_context=_substatement_prompt_context(node, rendered),
     )
@@ -330,7 +336,7 @@ def build_description_tree(
 
     # Convert substatement tree to description nodes
     desc_children = [
-        _substatement_to_desc_node(root, prefix) for root in roots
+        _substatement_to_desc_node(root, prefix, schema, obj_name, sub) for root in roots
     ]
 
     if expand_calls:

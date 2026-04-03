@@ -21,8 +21,12 @@ from summarizer.tree_store import (
 )
 
 
-def _node(node_id: str = "test/root", description: str = "Описание",
-          children: list[DescriptionNode] | None = None) -> DescriptionNode:
+def _node(
+    node_id: str = "test/root",
+    description: str = "Описание",
+    children: list[DescriptionNode] | None = None,
+    subprogram: str = "",
+) -> DescriptionNode:
     return DescriptionNode(
         node_id=node_id,
         node_kind="method_root",
@@ -33,6 +37,7 @@ def _node(node_id: str = "test/root", description: str = "Описание",
         end_line=10,
         description=description,
         children=children or [],
+        subprogram=subprogram,
         source_hash="abc123",
     )
 
@@ -147,3 +152,44 @@ def test_run_specific_node_persistence(mem_conn: sqlite3.Connection) -> None:
     assert latest_run == run_id
     assert len(rows) == 1
     assert rows[0]["description"] == "По run_id"
+
+
+def test_run_node_persistence_uses_node_subprogram(mem_conn: sqlite3.Connection) -> None:
+    run_id = create_analysis_run(mem_conn, "S", "PKG_A", "PACKAGE BODY", "PROC_MAIN", "2")
+    root = _node(description="Корень", subprogram="PROC_MAIN")
+    child = _node(node_id="test/seq:0", description="Дочерний", subprogram="DO_WORK")
+
+    upsert_run_node_description(
+        mem_conn,
+        run_id,
+        "S",
+        "PKG_A",
+        "PACKAGE BODY",
+        "PROC_MAIN",
+        root,
+        None,
+        0,
+        "2",
+    )
+    upsert_run_node_description(
+        mem_conn,
+        run_id,
+        "S",
+        "PKG_A",
+        "PACKAGE BODY",
+        "PROC_MAIN",
+        child,
+        root.node_id,
+        0,
+        "2",
+    )
+
+    rows = mem_conn.execute(
+        "SELECT node_id, subprogram FROM node_description WHERE run_id = ? ORDER BY node_id",
+        (run_id,),
+    ).fetchall()
+
+    assert [dict(row) for row in rows] == [
+        {"node_id": "test/root", "subprogram": "PROC_MAIN"},
+        {"node_id": "test/seq:0", "subprogram": "DO_WORK"},
+    ]

@@ -246,6 +246,7 @@ def upsert_run_node_description(
     position: int,
     prompt_version: str,
 ) -> None:
+    stored_subprogram = node.subprogram or ""
     with conn:
         conn.execute(
             """
@@ -277,7 +278,7 @@ def upsert_run_node_description(
                 schema.upper(),
                 object_name.upper(),
                 object_type.upper(),
-                _norm(subprogram),
+                _norm(stored_subprogram),
                 node.node_id,
                 node.node_kind,
                 node.statement_type,
