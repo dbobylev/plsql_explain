@@ -290,7 +290,8 @@ def test_render_tree_html_output() -> None:
 
     assert "<!DOCTYPE html>" in output
     assert "PL/SQL Explain Report" in output
-    assert '<table class="tree-table">' in output
+    assert '<details id="node-1" class="tree-node root-node" open>' in output
+    assert '<summary class="tree-summary">' in output
     assert 'href="#node-1-1"' in output
     assert "CALL -&gt; PKG_B.DO_WORK" in output
     assert "&lt;b&gt;расчёта&lt;/b&gt;" in output
@@ -300,6 +301,8 @@ def test_render_tree_html_output() -> None:
     assert "DO_WORK" in output
     assert "width: 100%;" in output
     assert "padding-left: calc(10px + var(--depth) * 18px);" not in output
+    assert "Expandable tree" in output
+    assert "tree-summary-panel" in output
 
 
 def test_render_tree_truncates_long_index_labels_in_markdown_and_html() -> None:

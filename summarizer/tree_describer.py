@@ -687,7 +687,7 @@ def render_tree_html(node: DescriptionNode) -> str:
     line_span = _format_line_span(node)
     hero_description_html = _html_text(node.description) if node.description else ""
     branch_links_html = _render_branch_links(node)
-    table_rows_html = "\n".join(_render_html_row(row) for row in rows)
+    tree_html = _render_html_tree(node)
 
     overview_cards = "".join(
         [
@@ -1038,75 +1038,106 @@ def render_tree_html(node: DescriptionNode) -> str:
       color: var(--accent-stmt);
     }}
 
-    .table-wrap {{
-      overflow: auto;
+    .tree-shell {{
       border-radius: 22px;
       border: 1px solid rgba(216, 202, 184, 0.86);
       background: var(--panel-strong);
+      padding: 14px;
     }}
 
-    .tree-table {{
-      width: 100%;
-      border-collapse: separate;
-      border-spacing: 0;
-      table-layout: fixed;
+    .tree-root,
+    .tree-children {{
+      display: grid;
+      gap: 12px;
     }}
 
-    .tree-table col.no-col {{
-      width: 12rem;
+    .tree-node {{
+      border: 1px solid rgba(216, 202, 184, 0.78);
+      border-radius: 18px;
+      background: rgba(255, 252, 247, 0.76);
+      box-shadow: 0 8px 18px rgba(34, 49, 54, 0.04);
     }}
 
-    .tree-table col.level-col {{
-      width: 5.5rem;
+    .tree-node[open] {{
+      background: rgba(255, 253, 249, 0.94);
     }}
 
-    .tree-table col.type-col {{
-      width: 9rem;
+    .tree-node.root-node {{
+      background: rgba(36, 75, 90, 0.05);
     }}
 
-    .tree-table col.node-col {{
-      width: 32rem;
+    .tree-node.group-start {{
+      border-top: 2px solid rgba(20, 108, 125, 0.22);
     }}
 
-    .tree-table col.lines-col {{
-      width: 8rem;
+    .tree-summary {{
+      list-style: none;
+      cursor: pointer;
+      padding: 16px 18px;
+      border-radius: 18px;
     }}
 
-    .tree-table th {{
-      position: sticky;
-      top: 0;
-      z-index: 3;
-      padding: 15px 16px;
-      border-bottom: 1px solid rgba(216, 202, 184, 0.92);
-      background: rgba(245, 239, 229, 0.96);
+    .tree-summary::-webkit-details-marker {{
+      display: none;
+    }}
+
+    .tree-summary:hover {{
+      background: var(--row-hover);
+    }}
+
+    .tree-summary-grid {{
+      display: grid;
+      grid-template-columns: minmax(9rem, 12rem) minmax(4rem, 5.5rem) minmax(7rem, 9rem) minmax(18rem, 1.8fr) minmax(6rem, 8rem) minmax(2rem, 2.5rem);
+      gap: 14px;
+      align-items: start;
+    }}
+
+    .tree-head-row {{
+      display: grid;
+      grid-template-columns: minmax(9rem, 12rem) minmax(4rem, 5.5rem) minmax(7rem, 9rem) minmax(18rem, 1.8fr) minmax(6rem, 8rem) minmax(2rem, 2.5rem);
+      gap: 14px;
+      padding: 0 4px 10px;
+      border-bottom: 1px solid rgba(216, 202, 184, 0.8);
       color: var(--ink-soft);
       font-size: 0.79rem;
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      text-align: left;
     }}
 
-    .tree-table td {{
-      padding: 14px 16px;
-      border-bottom: 1px solid rgba(216, 202, 184, 0.55);
-      vertical-align: top;
+    .tree-cell-node {{
+      min-width: 0;
     }}
 
-    .tree-table tbody tr:nth-child(even) {{
-      background: var(--row-alt);
+    .tree-toggle {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2rem;
+      height: 2rem;
+      border-radius: 999px;
+      border: 1px solid rgba(216, 202, 184, 0.86);
+      background: rgba(255, 248, 240, 0.86);
+      color: var(--accent-cool);
+      font-size: 0.92rem;
+      font-weight: 700;
+      line-height: 1;
     }}
 
-    .tree-table tbody tr:hover {{
-      background: var(--row-hover);
+    .tree-node:not([open]) > .tree-summary .toggle-open {{
+      display: inline;
     }}
 
-    .tree-table tbody tr.group-start td {{
-      border-top: 2px solid rgba(20, 108, 125, 0.22);
+    .tree-node:not([open]) > .tree-summary .toggle-close {{
+      display: none;
     }}
 
-    .tree-table tbody tr.root-row {{
-      background: rgba(36, 75, 90, 0.05);
+    .tree-node[open] > .tree-summary .toggle-open {{
+      display: none;
+    }}
+
+    .tree-node[open] > .tree-summary .toggle-close {{
+      display: inline;
     }}
 
     .row-anchor {{
@@ -1193,6 +1224,32 @@ def render_tree_html(node: DescriptionNode) -> str:
       font-style: italic;
     }}
 
+    .tree-content {{
+      padding: 0 18px 18px;
+    }}
+
+    .tree-summary-panel {{
+      padding: 16px 18px;
+      border-radius: 16px;
+      background: rgba(245, 251, 250, 0.66);
+      border: 1px solid rgba(216, 202, 184, 0.72);
+    }}
+
+    .tree-summary-label {{
+      margin: 0 0 8px;
+      color: var(--accent-cool);
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }}
+
+    .tree-children {{
+      margin-top: 12px;
+      padding-left: 18px;
+      border-left: 2px solid rgba(20, 108, 125, 0.12);
+    }}
+
     .footer-note {{
       margin-top: 18px;
       color: var(--ink-soft);
@@ -1220,6 +1277,23 @@ def render_tree_html(node: DescriptionNode) -> str:
       .section-note {{
         text-align: left;
       }}
+
+      .tree-head-row {{
+        display: none;
+      }}
+
+      .tree-summary-grid {{
+        grid-template-columns: minmax(0, 1fr);
+        gap: 10px;
+      }}
+
+      .tree-toggle {{
+        justify-self: start;
+      }}
+
+      .tree-children {{
+        padding-left: 10px;
+      }}
     }}
 
     @media print {{
@@ -1239,8 +1313,9 @@ def render_tree_html(node: DescriptionNode) -> str:
         background: #ffffff;
       }}
 
-      .tree-table th {{
-        position: static;
+      .tree-node,
+      .tree-summary-panel {{
+        box-shadow: none;
       }}
     }}
   </style>
@@ -1261,37 +1336,25 @@ def render_tree_html(node: DescriptionNode) -> str:
       <div class="section-head">
         <div>
           <p class="section-kicker">Hierarchy</p>
-          <h2>Presentation table</h2>
+          <h2>Expandable tree</h2>
         </div>
-        <p class="section-note">A flat, scan-friendly view of the full tree with sticky headers, direct anchors and explicit subprogram context for every node.</p>
+        <p class="section-note">A static expandable tree: each node has a compact header, and its summary plus child nodes open on demand.</p>
       </div>
       <div class="legend-row">
         {legend_html}
       </div>
-      <div class="table-wrap">
-        <table class="tree-table">
-          <colgroup>
-            <col class="no-col">
-            <col class="level-col">
-            <col class="type-col">
-            <col class="node-col">
-            <col class="lines-col">
-            <col>
-          </colgroup>
-          <thead>
-            <tr>
-              <th>No</th>
-              <th>Level</th>
-              <th>Type</th>
-              <th>Node</th>
-              <th>Lines</th>
-              <th>Summary</th>
-            </tr>
-          </thead>
-          <tbody>
-            {table_rows_html}
-          </tbody>
-        </table>
+      <div class="tree-shell">
+        <div class="tree-head-row">
+          <div>No</div>
+          <div>Level</div>
+          <div>Type</div>
+          <div>Node</div>
+          <div>Lines</div>
+          <div>Open</div>
+        </div>
+        <div class="tree-root">
+          {tree_html}
+        </div>
       </div>
       <p class="footer-note">This HTML report is static and does not require JavaScript. It works well in a browser and is suitable for manual reuse in HTML-capable environments.</p>
     </section>
@@ -1573,6 +1636,76 @@ def _render_html_row(row: dict[str, object]) -> str:
               <td>{line_html}</td>
               <td><div class="summary-text">{summary_html}</div></td>
             </tr>"""
+
+
+def _render_html_tree(node: DescriptionNode) -> str:
+    return _render_html_tree_node(node, [1])
+
+
+def _render_html_tree_node(
+    node: DescriptionNode,
+    index_path: list[int],
+) -> str:
+    depth = len(index_path) - 1
+    index_label = ".".join(str(part) for part in index_path)
+    index_display = _truncate_index_label(index_label)
+    row_id = "node-" + "-".join(str(part) for part in index_path)
+    line_span = _format_line_span(node)
+    badge_label = _html_badge_label(node)
+    badge_class = f"kind-{node.node_kind}"
+    caption = _html_caption(node)
+    caption_html = f'<div class="node-caption">{escape(caption)}</div>' if caption else ""
+    subprogram_label = _display_subprogram_label(node)
+    summary_html = _html_text(node.description) if node.description else '<span class="summary-empty">No description</span>'
+    line_html = f'<span class="line-pill">{escape(line_span)}</span>' if line_span else '<span class="line-pill empty">n/a</span>'
+    index_title_attr = f' title="{escape(index_label)}"' if index_display != index_label else ""
+    open_attr = " open" if depth == 0 else ""
+
+    node_classes = ["tree-node"]
+    if depth == 0:
+        node_classes.append("root-node")
+    if depth == 1:
+        node_classes.append("group-start")
+    node_class_attr = " ".join(node_classes)
+
+    children_html = ""
+    if node.children:
+        rendered_children = "\n".join(
+            _render_html_tree_node(child, [*index_path, position])
+            for position, child in enumerate(node.children, start=1)
+        )
+        children_html = f"""
+            <div class="tree-children">
+              {rendered_children}
+            </div>"""
+
+    return f"""
+          <details id="{escape(row_id)}" class="{escape(node_class_attr)}"{open_attr}>
+            <summary class="tree-summary">
+              <div class="tree-summary-grid">
+                <div><a class="row-anchor" href="#{escape(row_id)}"{index_title_attr}>{escape(index_display)}</a></div>
+                <div><span class="level-pill">{depth}</span></div>
+                <div><span class="kind-badge {escape(badge_class)}">{escape(badge_label)}</span></div>
+                <div class="tree-cell-node">
+                  <div class="node-shell">
+                    <div class="node-title">{escape(_outline_title(node, include_line_span=False))}</div>
+                    <div class="node-scope">
+                      <span class="node-scope-label">Subprogram</span>
+                      <span class="node-scope-value">{escape(subprogram_label)}</span>
+                    </div>{caption_html}
+                  </div>
+                </div>
+                <div>{line_html}</div>
+                <div class="tree-toggle"><span class="toggle-open">+</span><span class="toggle-close">-</span></div>
+              </div>
+            </summary>
+            <div class="tree-content">
+              <div class="tree-summary-panel">
+                <p class="tree-summary-label">Summary</p>
+                <div class="summary-text">{summary_html}</div>
+              </div>{children_html}
+            </div>
+          </details>"""
 
 
 def _display_html_identity(node: DescriptionNode) -> str:
