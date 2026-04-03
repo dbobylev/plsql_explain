@@ -193,3 +193,45 @@ def test_run_node_persistence_uses_node_subprogram(mem_conn: sqlite3.Connection)
         {"node_id": "test/root", "subprogram": "PROC_MAIN"},
         {"node_id": "test/seq:0", "subprogram": "DO_WORK"},
     ]
+
+
+def test_run_node_persistence_uses_node_schema_and_object(mem_conn: sqlite3.Connection) -> None:
+    run_id = create_analysis_run(mem_conn, "S", "PKG_A", "PACKAGE BODY", "PROC_MAIN", "2")
+    child = DescriptionNode(
+        node_id="test/seq:0",
+        node_kind="statement",
+        statement_type="OTHER",
+        title="OTHER",
+        source_text="",
+        start_line=1,
+        end_line=1,
+        description="Дочерний",
+        schema_name="EXT",
+        object_name="PKG_B",
+        subprogram="DO_WORK",
+        source_hash="abc456",
+    )
+
+    upsert_run_node_description(
+        mem_conn,
+        run_id,
+        "S",
+        "PKG_A",
+        "PACKAGE BODY",
+        "PROC_MAIN",
+        child,
+        None,
+        0,
+        "2",
+    )
+
+    row = mem_conn.execute(
+        "SELECT schema_name, object_name, subprogram FROM node_description WHERE run_id = ? AND node_id = ?",
+        (run_id, child.node_id),
+    ).fetchone()
+
+    assert dict(row) == {
+        "schema_name": "EXT",
+        "object_name": "PKG_B",
+        "subprogram": "DO_WORK",
+    }
