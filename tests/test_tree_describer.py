@@ -14,6 +14,8 @@ from summarizer.tree_describer import (
     describe_tree,
     describe_tree_run,
     render_tree,
+    render_tree_html,
+    render_tree_html_from_run,
     render_tree_from_run,
 )
 from summarizer.tree_prompts import PROMPT_VERSION
@@ -249,6 +251,60 @@ def test_render_tree_wraps_descriptions_in_outline() -> None:
     assert "    Это очень длинное описание узла, которое должно" in output
     assert "    перенесено на несколько строк с сохранением аккуратного" in output
     assert "    выравнивания." in output
+
+
+def test_render_tree_html_output() -> None:
+    child = DescriptionNode(
+        node_id="test/seq:1",
+        node_kind="call",
+        statement_type="CALL",
+        title="CALL -> PKG_B.DO_WORK",
+        source_text="PKG_B.DO_WORK();",
+        start_line=4,
+        end_line=8,
+        description="Выполняет <dangerous> шаг и возвращает результат.",
+    )
+    root = DescriptionNode(
+        node_id="test/root",
+        node_kind="method_root",
+        statement_type="METHOD",
+        title="PROC_MAIN",
+        source_text="",
+        start_line=1,
+        end_line=12,
+        description="Главная процедура <b>расчёта</b>.",
+        children=[child],
+        schema_name="S",
+        object_name="PKG_A",
+        subprogram="PROC_MAIN",
+    )
+
+    output = render_tree_html(root)
+
+    assert "<!DOCTYPE html>" in output
+    assert "PL/SQL Explain Report" in output
+    assert '<table class="tree-table">' in output
+    assert 'href="#node-1-1"' in output
+    assert "CALL -&gt; PKG_B.DO_WORK" in output
+    assert "&lt;b&gt;расчёта&lt;/b&gt;" in output
+    assert "&lt;dangerous&gt;" in output
+
+
+def test_render_tree_html_from_run_uses_persisted_rows(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "PKG_A")
+    _insert_substatement(mem_conn, "S", "PKG_A", "PACKAGE BODY", "",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="v_x := 1;")
+
+    client = MagicMock()
+    client.complete.return_value = "Описание"
+
+    tree = describe_tree(mem_conn, "S", "PKG_A", None, client)
+    output = render_tree_html_from_run(mem_conn, tree.analysis_run_id)
+
+    assert "<html" in output
+    assert "PKG_A" in output
+    assert "Описание" in output
 
 
 def test_describe_tree_end_to_end(mem_conn: sqlite3.Connection) -> None:

@@ -176,6 +176,8 @@ python main.py summarize --schema MYSCHEMA --object PKG_ORDERS --force
 Результат автоматически сохраняется в Markdown-файл в папку `rusult_summary/`.
 Файл содержит обзор (`Overview`) со статистикой по дереву и `Numbered Outline`
 с ручными переносами длинных описаний.
+Дополнительно рядом сохраняется HTML-отчёт с карточками overview и
+presentation-friendly иерархической таблицей для просмотра в браузере.
 Шаблон имени: `summary_<schema>_<object>_<subprogram|root>_<timestamp>.md`
 Помимо Markdown-вывода, полное дерево узлов с описаниями сохраняется в SQLite в таблицу `node_description`.
 

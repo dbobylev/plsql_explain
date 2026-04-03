@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from main import build_parser, build_summary_path, cmd_summarize
+from main import build_parser, build_summary_html_path, build_summary_path, cmd_summarize
 
 
 def test_fetch_parses_schema():
@@ -134,25 +134,40 @@ def test_build_summary_path_uses_root_when_subprogram_missing():
     assert path == Path("rusult_summary/summary_myschema_pkg_orders_root_20260401_123456.md")
 
 
+def test_build_summary_html_path_uses_expected_pattern():
+    args = build_parser().parse_args(
+        ["summarize", "--schema", "MYSCHEMA", "--object", "PKG_ORDERS", "--subprogram", "CALCULATE_TOTAL"]
+    )
+    path = build_summary_html_path(args, timestamp=datetime(2026, 4, 1, 12, 34, 56))
+    assert path == Path("rusult_summary/summary_myschema_pkg_orders_calculate_total_20260401_123456.html")
+
+
 def test_cmd_summarize_writes_summary_to_markdown_file(tmp_path, monkeypatch):
     output_path = tmp_path / "rusult_summary" / "summary_s_pkg_a_proc_x_20260401_123456.md"
+    output_html_path = tmp_path / "rusult_summary" / "summary_s_pkg_a_proc_x_20260401_123456.html"
     args = build_parser().parse_args(
         ["summarize", "--schema", "S", "--object", "PKG_A", "--subprogram", "PROC_X"]
     )
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.db"))
     rendered_output = "PKG_A.PROC_X — итоговое описание"
+    rendered_html_output = "<html><body><h1>PKG_A.PROC_X</h1><p>итоговое описание</p></body></html>"
 
     with patch("main.ensure_logging_configured"), \
          patch("dotenv.load_dotenv"), \
          patch("summarizer.llm_client.LlmClient", return_value=object()), \
          patch("summarizer.tree_describer.describe_tree_run", return_value="run-1"), \
          patch("summarizer.tree_describer.render_tree_from_run", return_value=rendered_output), \
-         patch("main.build_summary_path", return_value=output_path):
+         patch("summarizer.tree_describer.render_tree_html_from_run", return_value=rendered_html_output), \
+         patch("main.build_summary_path", return_value=output_path), \
+         patch("main.build_summary_html_path", return_value=output_html_path):
         cmd_summarize(args)
 
     content = output_path.read_text(encoding="utf-8")
+    html_content = output_html_path.read_text(encoding="utf-8")
     assert "PKG_A.PROC_X" in content
     assert "итоговое описание" in content
+    assert "<html>" in html_content
+    assert "итоговое описание" in html_content
 
 
 def test_debug_defaults():

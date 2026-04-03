@@ -26,6 +26,14 @@ def _sanitize_filename_component(value: str) -> str:
 
 
 def build_summary_filename(args: argparse.Namespace, timestamp: datetime | None = None) -> str:
+    return build_output_filename(args, ".md", timestamp=timestamp)
+
+
+def build_output_filename(
+    args: argparse.Namespace,
+    extension: str,
+    timestamp: datetime | None = None,
+) -> str:
     timestamp = timestamp or datetime.now().astimezone()
     program_name = args.subprogram or SUMMARY_ROOT_LABEL
     parts = [
@@ -35,7 +43,7 @@ def build_summary_filename(args: argparse.Namespace, timestamp: datetime | None 
         _sanitize_filename_component(program_name),
         timestamp.strftime("%Y%m%d_%H%M%S"),
     ]
-    return "_".join(parts) + ".md"
+    return "_".join(parts) + extension
 
 
 def build_summary_path(
@@ -44,6 +52,14 @@ def build_summary_path(
     timestamp: datetime | None = None,
 ) -> Path:
     return Path(output_dir) / build_summary_filename(args, timestamp=timestamp)
+
+
+def build_summary_html_path(
+    args: argparse.Namespace,
+    output_dir: str | Path = SUMMARY_OUTPUT_DIR,
+    timestamp: datetime | None = None,
+) -> Path:
+    return Path(output_dir) / build_output_filename(args, ".html", timestamp=timestamp)
 
 
 def write_summary_output(
@@ -59,6 +75,19 @@ def write_summary_output(
     return summary_path
 
 
+def write_summary_html_output(
+    args: argparse.Namespace,
+    summary_html: str,
+    output_dir: str | Path = SUMMARY_OUTPUT_DIR,
+    timestamp: datetime | None = None,
+) -> Path:
+    summary_path = build_summary_html_path(args, output_dir=output_dir, timestamp=timestamp)
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text(summary_html, encoding="utf-8")
+    _logger.debug("HTML summary written to %s", summary_path)
+    return summary_path
+
+
 def cmd_summarize(args: argparse.Namespace) -> None:
     ensure_logging_configured(getattr(args, "log_level", None))
     from dotenv import load_dotenv
@@ -66,7 +95,11 @@ def cmd_summarize(args: argparse.Namespace) -> None:
     import sqlite3
     from fetcher.sqlite_store import init_db
     from summarizer.llm_client import LlmClient
-    from summarizer.tree_describer import describe_tree_run, render_tree_from_run
+    from summarizer.tree_describer import (
+        describe_tree_run,
+        render_tree_from_run,
+        render_tree_html_from_run,
+    )
 
     db_path = os.environ.get("SQLITE_PATH", "./data/plsql.db")
     _logger.debug(
@@ -91,9 +124,12 @@ def cmd_summarize(args: argparse.Namespace) -> None:
             max_depth=args.depth,
         )
         output = render_tree_from_run(conn, run_id)
+        output_html = render_tree_html_from_run(conn, run_id)
     finally:
         conn.close()
-    write_summary_output(args, output)
+    timestamp = datetime.now().astimezone()
+    write_summary_output(args, output, timestamp=timestamp)
+    write_summary_html_output(args, output_html, timestamp=timestamp)
     _logger.info(output)
 
 
