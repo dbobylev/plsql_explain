@@ -1053,11 +1053,7 @@ def render_tree_html(node: DescriptionNode) -> str:
     }}
 
     .tree-table col.no-col {{
-      width: 12rem;
-    }}
-
-    .tree-table col.level-col {{
-      width: 5.5rem;
+      width: 10rem;
     }}
 
     .tree-table col.type-col {{
@@ -1065,7 +1061,7 @@ def render_tree_html(node: DescriptionNode) -> str:
     }}
 
     .tree-table col.node-col {{
-      width: 32rem;
+      width: 36rem;
     }}
 
     .tree-table col.lines-col {{
@@ -1101,10 +1097,6 @@ def render_tree_html(node: DescriptionNode) -> str:
       background: var(--row-hover);
     }}
 
-    .tree-table tbody tr.group-start td {{
-      border-top: 2px solid rgba(20, 108, 125, 0.22);
-    }}
-
     .tree-table tbody tr.root-row {{
       background: rgba(36, 75, 90, 0.05);
     }}
@@ -1119,7 +1111,6 @@ def render_tree_html(node: DescriptionNode) -> str:
       color: var(--accent-warm);
     }}
 
-    .level-pill,
     .line-pill {{
       display: inline-flex;
       align-items: center;
@@ -1193,6 +1184,86 @@ def render_tree_html(node: DescriptionNode) -> str:
       font-style: italic;
     }}
 
+    .node-cell {{
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+    }}
+
+    .toggle-btn {{
+      flex-shrink: 0;
+      margin-top: 3px;
+      padding: 0;
+      width: 20px;
+      height: 20px;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      color: var(--accent-cool);
+      font-size: 0.7rem;
+      line-height: 1;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.12s, color 0.12s;
+    }}
+
+    .toggle-btn:hover {{
+      background: rgba(20, 108, 125, 0.12);
+      color: var(--accent-warm);
+    }}
+
+    .toggle-spacer {{
+      flex-shrink: 0;
+      display: inline-block;
+      width: 20px;
+    }}
+
+    .ctrl-bar {{
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+      margin-bottom: 4px;
+    }}
+
+    .ctrl-btn {{
+      padding: 6px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(216, 202, 184, 0.9);
+      background: rgba(255, 252, 247, 0.9);
+      color: var(--ink-main);
+      font-size: 0.84rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.12s, box-shadow 0.12s;
+    }}
+
+    .ctrl-btn:hover {{
+      background: rgba(20, 108, 125, 0.1);
+      box-shadow: 0 2px 8px rgba(34, 49, 54, 0.08);
+    }}
+
+    .ctrl-label {{
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.84rem;
+      color: var(--ink-soft);
+    }}
+
+    .depth-input {{
+      width: 4rem;
+      padding: 5px 8px;
+      border-radius: 8px;
+      border: 1px solid rgba(216, 202, 184, 0.9);
+      background: rgba(255, 252, 247, 0.9);
+      font-size: 0.84rem;
+      color: var(--ink-main);
+    }}
+
     .footer-note {{
       margin-top: 18px;
       color: var(--ink-soft);
@@ -1261,18 +1332,22 @@ def render_tree_html(node: DescriptionNode) -> str:
       <div class="section-head">
         <div>
           <p class="section-kicker">Hierarchy</p>
-          <h2>Presentation table</h2>
+          <h2>Dependency tree</h2>
         </div>
-        <p class="section-note">A flat, scan-friendly view of the full tree with sticky headers, direct anchors and explicit subprogram context for every node.</p>
+        <p class="section-note">Collapsible tree view. Click &#9654; to expand a node, &#9660; to collapse. Use controls below to navigate large trees.</p>
       </div>
       <div class="legend-row">
         {legend_html}
+      </div>
+      <div class="ctrl-bar">
+        <button class="ctrl-btn" onclick="treeExpandAll()">Expand all</button>
+        <button class="ctrl-btn" onclick="treeCollapseAll()">Collapse all</button>
+        <label class="ctrl-label">Depth: <input type="number" class="depth-input" min="0" max="99" value="1" onchange="treeShowDepth(+this.value)"></label>
       </div>
       <div class="table-wrap">
         <table class="tree-table">
           <colgroup>
             <col class="no-col">
-            <col class="level-col">
             <col class="type-col">
             <col class="node-col">
             <col class="lines-col">
@@ -1281,7 +1356,6 @@ def render_tree_html(node: DescriptionNode) -> str:
           <thead>
             <tr>
               <th>No</th>
-              <th>Level</th>
               <th>Type</th>
               <th>Node</th>
               <th>Lines</th>
@@ -1293,9 +1367,87 @@ def render_tree_html(node: DescriptionNode) -> str:
           </tbody>
         </table>
       </div>
-      <p class="footer-note">This HTML report is static and does not require JavaScript. It works well in a browser and is suitable for manual reuse in HTML-capable environments.</p>
     </section>
   </main>
+  <script>
+    (function () {{
+      var childrenOf = {{}};
+      var allRows = document.querySelectorAll('tr[data-node-id]');
+      allRows.forEach(function (row) {{
+        var pid = row.dataset.parentId;
+        if (pid) {{
+          if (!childrenOf[pid]) childrenOf[pid] = [];
+          childrenOf[pid].push(row);
+        }}
+      }});
+
+      function expand(nodeId) {{
+        var btn = document.getElementById('btn-' + nodeId);
+        if (!btn || btn.dataset.expanded === '1') return;
+        (childrenOf[nodeId] || []).forEach(function (row) {{
+          row.style.display = '';
+        }});
+        btn.innerHTML = '&#9660;';
+        btn.dataset.expanded = '1';
+      }}
+
+      function collapse(nodeId) {{
+        var btn = document.getElementById('btn-' + nodeId);
+        (childrenOf[nodeId] || []).forEach(function (row) {{
+          collapse(row.dataset.nodeId);
+          row.style.display = 'none';
+        }});
+        if (btn) {{
+          btn.innerHTML = '&#9654;';
+          btn.dataset.expanded = '0';
+        }}
+      }}
+
+      window.treeToggle = function (nodeId) {{
+        var btn = document.getElementById('btn-' + nodeId);
+        if (!btn) return;
+        if (btn.dataset.expanded === '1') collapse(nodeId);
+        else expand(nodeId);
+      }};
+
+      window.treeExpandAll = function () {{
+        allRows.forEach(function (r) {{ r.style.display = ''; }});
+        document.querySelectorAll('.toggle-btn').forEach(function (b) {{
+          b.innerHTML = '&#9660;';
+          b.dataset.expanded = '1';
+        }});
+      }};
+
+      window.treeCollapseAll = function () {{
+        allRows.forEach(function (r) {{
+          var d = parseInt(r.dataset.depth);
+          r.style.display = d >= 2 ? 'none' : '';
+        }});
+        document.querySelectorAll('.toggle-btn').forEach(function (b) {{
+          b.innerHTML = '&#9654;';
+          b.dataset.expanded = '0';
+        }});
+      }};
+
+      window.treeShowDepth = function (maxDepth) {{
+        allRows.forEach(function (r) {{
+          var d = parseInt(r.dataset.depth);
+          r.style.display = d <= maxDepth ? '' : 'none';
+        }});
+        document.querySelectorAll('.toggle-btn').forEach(function (b) {{
+          var row = b.closest('tr');
+          var d = parseInt(row.dataset.depth);
+          if (d < maxDepth) {{
+            b.innerHTML = '&#9660;';
+            b.dataset.expanded = '1';
+          }} else {{
+            b.innerHTML = '&#9654;';
+            b.dataset.expanded = '0';
+          }}
+        }});
+      }};
+    }})();
+  </script>
 </body>
 </html>
 """
@@ -1358,13 +1510,17 @@ def _collect_tree_rows(node: DescriptionNode) -> list[dict[str, object]]:
     def visit(current: DescriptionNode, index_path: list[int]) -> None:
         depth = len(index_path) - 1
         full_index_label = ".".join(str(part) for part in index_path)
+        row_id = "node-" + "-".join(str(part) for part in index_path)
+        parent_row_id = ("node-" + "-".join(str(p) for p in index_path[:-1])) if len(index_path) > 1 else ""
         rows.append(
             {
                 "node": current,
                 "depth": depth,
                 "index_label": full_index_label,
                 "index_display": _truncate_index_label(full_index_label),
-                "row_id": "node-" + "-".join(str(part) for part in index_path),
+                "row_id": row_id,
+                "parent_row_id": parent_row_id,
+                "has_children": bool(current.children),
                 "line_span": _format_line_span(current),
                 "badge_label": _html_badge_label(current),
                 "badge_class": f"kind-{current.node_kind}",
@@ -1538,6 +1694,8 @@ def _render_html_row(row: dict[str, object]) -> str:
     index_label = str(row["index_label"])
     index_display = str(row["index_display"])
     row_id = str(row["row_id"])
+    parent_row_id = str(row["parent_row_id"])
+    has_children = bool(row["has_children"])
     line_span = str(row["line_span"])
     badge_label = str(row["badge_label"])
     badge_class = str(row["badge_class"])
@@ -1547,27 +1705,38 @@ def _render_html_row(row: dict[str, object]) -> str:
     row_classes = []
     if depth == 0:
         row_classes.append("root-row")
-    if depth == 1:
-        row_classes.append("group-start")
+    row_class_attr = f' class="{" ".join(row_classes)}"' if row_classes else ""
+
+    # Rows at depth >= 2 are hidden by default; depth 0 and 1 are visible
+    hidden_style = ' style="display:none"' if depth >= 2 else ""
 
     summary_html = _html_text(node.description) if node.description else '<span class="summary-empty">No description</span>'
     caption_html = f'<div class="node-caption">{escape(caption)}</div>' if caption else ""
     line_html = f'<span class="line-pill">{escape(line_span)}</span>' if line_span else '<span class="line-pill empty">n/a</span>'
-    row_class_attr = f' class="{" ".join(row_classes)}"' if row_classes else ""
     index_title_attr = f' title="{escape(index_label)}"' if index_display != index_label else ""
 
+    # Indentation: 14px per level, max 280px (20 levels)
+    indent_px = min(depth * 14, 280)
+
+    if has_children:
+        toggle_html = f'<button class="toggle-btn" id="btn-{escape(row_id)}" data-expanded="0" onclick="treeToggle(\'{escape(row_id)}\')">&#9654;</button>'
+    else:
+        toggle_html = '<span class="toggle-spacer"></span>'
+
     return f"""
-            <tr id="{escape(row_id)}"{row_class_attr}>
+            <tr id="{escape(row_id)}"{row_class_attr} data-node-id="{escape(row_id)}" data-parent-id="{escape(parent_row_id)}" data-depth="{depth}" data-has-children="{1 if has_children else 0}"{hidden_style}>
               <td><a class="row-anchor" href="#{escape(row_id)}"{index_title_attr}>{escape(index_display)}</a></td>
-              <td><span class="level-pill">{depth}</span></td>
               <td><span class="kind-badge {escape(badge_class)}">{escape(badge_label)}</span></td>
-              <td>
-                <div class="node-shell">
-                  <div class="node-title">{escape(_outline_title(node, include_line_span=False))}</div>
-                  <div class="node-scope">
-                    <span class="node-scope-label">Subprogram</span>
-                    <span class="node-scope-value">{escape(subprogram_label)}</span>
-                  </div>{caption_html}
+              <td style="padding-left:{indent_px}px">
+                <div class="node-cell">
+                  {toggle_html}
+                  <div class="node-shell">
+                    <div class="node-title">{escape(_outline_title(node, include_line_span=False))}</div>
+                    <div class="node-scope">
+                      <span class="node-scope-label">Subprogram</span>
+                      <span class="node-scope-value">{escape(subprogram_label)}</span>
+                    </div>{caption_html}
+                  </div>
                 </div>
               </td>
               <td>{line_html}</td>
