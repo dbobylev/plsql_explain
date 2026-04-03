@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections import Counter
 import hashlib
 import logging
 import sqlite3
+import textwrap
 from typing import Optional
 
 from summarizer.description_tree import (
@@ -29,6 +31,10 @@ from traversal.graph import resolve_node_shallow
 from traversal.models import DependencyNode
 
 _logger = logging.getLogger(__name__)
+
+MARKDOWN_RENDER_WIDTH = 150
+OUTLINE_PREVIEW_LIMIT = 5
+OUTLINE_DESCRIPTION_INDENT_MIN = 4
 
 
 def describe_tree(
@@ -642,42 +648,166 @@ def render_tree_from_run(conn: sqlite3.Connection, run_id: str) -> str:
 
 def render_tree(
     node: DescriptionNode,
-    prefix: str = "",
-    is_last: bool = True,
-    is_root: bool = True,
+    max_width: int = MARKDOWN_RENDER_WIDTH,
 ) -> str:
-    """Render the description tree as indented text with box-drawing characters."""
+    """Render the description tree as Markdown with overview and numbered outline."""
+    width = max(40, max_width)
+    overview_lines = _render_markdown_overview(node)
+    outline_lines = _render_numbered_outline(node, width)
+
+    lines = [
+        f"# {node.title}",
+        "",
+        "## Overview",
+        *overview_lines,
+        "",
+        "## Numbered Outline",
+        "",
+        "````text",
+        *outline_lines,
+        "````",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _render_markdown_overview(node: DescriptionNode) -> list[str]:
+    stats = _collect_tree_stats(node)
+    lines = [
+        f"- Root: `{node.title}`",
+        f"- Total nodes: `{stats['total_nodes']}`",
+        f"- Max depth: `{stats['max_depth']}`",
+        f"- Statements: `{stats['statement_nodes']}`",
+        f"- Calls: `{stats['call_nodes']}`",
+        f"- Stubs: `{stats['stub_nodes']}`",
+    ]
+
+    root_line_span = _format_line_span(node)
+    if root_line_span:
+        lines.append(f"- Root line span: `{root_line_span}`")
+
+    if node.children:
+        preview_nodes = [
+            _outline_title(child, include_line_span=False)
+            for child in node.children[:OUTLINE_PREVIEW_LIMIT]
+        ]
+        preview = ", ".join(f"`{item}`" for item in preview_nodes)
+        if len(node.children) > OUTLINE_PREVIEW_LIMIT:
+            preview += ", ..."
+        lines.append(f"- Top-level items: {preview}")
+
+    return lines
+
+
+def _collect_tree_stats(node: DescriptionNode) -> dict[str, int]:
+    total_nodes = 0
+    max_depth = 0
+    kind_counts: Counter[str] = Counter()
+    stack: list[tuple[DescriptionNode, int]] = [(node, 0)]
+
+    while stack:
+        current, depth = stack.pop()
+        total_nodes += 1
+        max_depth = max(max_depth, depth)
+        kind_counts[current.node_kind] += 1
+        for child in reversed(current.children):
+            stack.append((child, depth + 1))
+
+    return {
+        "total_nodes": total_nodes,
+        "max_depth": max_depth,
+        "statement_nodes": kind_counts["statement"],
+        "call_nodes": kind_counts["call"],
+        "stub_nodes": kind_counts["stub"],
+    }
+
+
+def _render_numbered_outline(node: DescriptionNode, max_width: int) -> list[str]:
     lines: list[str] = []
-
-    if is_root:
-        label = _node_label(node)
-        lines.append(label)
-        child_prefix = ""
-    else:
-        connector = "\u2514\u2500\u2500 " if is_last else "\u251c\u2500\u2500 "
-        label = _node_label(node)
-        lines.append(prefix + connector + label)
-        child_prefix = prefix + ("    " if is_last else "\u2502   ")
-
-    for i, child in enumerate(node.children):
-        is_child_last = i == len(node.children) - 1
-        lines.append(render_tree(child, child_prefix, is_child_last, is_root=False))
-
-    return "\n".join(lines)
+    _append_outline_node(lines, node, [1], max_width)
+    return lines
 
 
-def _node_label(node: DescriptionNode) -> str:
+def _append_outline_node(
+    lines: list[str],
+    node: DescriptionNode,
+    index_path: list[int],
+    max_width: int,
+) -> None:
+    index_label = ".".join(str(part) for part in index_path)
+    lines.append(f"{index_label} {_outline_title(node)}")
+
+    if node.description:
+        description_indent = " " * max(len(index_label) + 1, OUTLINE_DESCRIPTION_INDENT_MIN)
+        lines.extend(
+            _wrap_text_block(
+                node.description,
+                width=max_width,
+                initial_indent=description_indent,
+                subsequent_indent=description_indent,
+            )
+        )
+
+    for position, child in enumerate(node.children, start=1):
+        _append_outline_node(lines, child, [*index_path, position], max_width)
+
+
+def _outline_title(node: DescriptionNode, include_line_span: bool = True) -> str:
     if node.node_kind == "method_root":
-        desc = f" \u2014 {node.description}" if node.description else ""
-        return f"{node.title}{desc}"
+        base = node.title
+    elif node.node_kind == "statement":
+        base = node.statement_type or node.title or "statement"
+    else:
+        base = node.title or node.statement_type or node.node_kind
 
-    if node.node_kind == "call":
-        desc = f" \u2014 {node.description}" if node.description else ""
-        return f"[{node.title}]{desc}"
+    if not include_line_span:
+        return base
 
-    if node.node_kind == "stub":
-        return f"[{node.title}] \u2014 {node.description}"
+    line_span = _format_line_span(node)
+    if not line_span:
+        return base
+    return f"{base} {line_span}"
 
-    # statement
-    desc = f" \u2014 {node.description}" if node.description else ""
-    return f"[{node.statement_type}]{desc}"
+
+def _format_line_span(node: DescriptionNode) -> str:
+    start = node.start_line or 0
+    end = node.end_line or 0
+    if start <= 0 and end <= 0:
+        return ""
+    if start > 0 and end > 0 and start != end:
+        return f"L{start}-L{end}"
+    line_no = start or end
+    return f"L{line_no}" if line_no > 0 else ""
+
+
+def _wrap_text_block(
+    text: str,
+    width: int,
+    initial_indent: str = "",
+    subsequent_indent: str = "",
+) -> list[str]:
+    lines: list[str] = []
+    raw_lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+
+    for raw_line in raw_lines:
+        normalized = " ".join(raw_line.split())
+        if not normalized:
+            if lines and lines[-1] != "":
+                lines.append("")
+            continue
+
+        wrapped = textwrap.wrap(
+            normalized,
+            width=width,
+            initial_indent=initial_indent,
+            subsequent_indent=subsequent_indent,
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+        if wrapped:
+            lines.extend(wrapped)
+        else:
+            lines.append(initial_indent.rstrip())
+
+    while lines and lines[-1] == "":
+        lines.pop()
+    return lines

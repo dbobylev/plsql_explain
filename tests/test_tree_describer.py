@@ -206,10 +206,49 @@ def test_render_tree_output() -> None:
 
     output = render_tree(root)
 
-    assert "PROC_MAIN" in output
+    assert "# PROC_MAIN" in output
+    assert "## Overview" in output
+    assert "## Numbered Outline" in output
+    assert "- Total nodes: `3`" in output
+    assert "1 PROC_MAIN L1-L10" in output
+    assert "1.1 OTHER L1" in output
+    assert "1.2 SQL_SELECT L2" in output
     assert "Присваивает v_x" in output
     assert "Выбирает единицу" in output
-    assert "├" in output or "└" in output
+
+
+def test_render_tree_wraps_descriptions_in_outline() -> None:
+    child = DescriptionNode(
+        node_id="test/seq:0",
+        node_kind="statement",
+        statement_type="OTHER",
+        title="OTHER",
+        source_text="v_x := 1;",
+        start_line=2,
+        end_line=2,
+        description=(
+            "Это очень длинное описание узла, которое должно быть перенесено "
+            "на несколько строк с сохранением аккуратного выравнивания."
+        ),
+    )
+    root = DescriptionNode(
+        node_id="test/root",
+        node_kind="method_root",
+        statement_type="METHOD",
+        title="PROC_MAIN",
+        source_text="",
+        start_line=1,
+        end_line=10,
+        description="Корневое описание",
+        children=[child],
+    )
+
+    output = render_tree(root, max_width=60)
+
+    assert "1.1 OTHER L2" in output
+    assert "    Это очень длинное описание узла, которое должно" in output
+    assert "    перенесено на несколько строк с сохранением аккуратного" in output
+    assert "    выравнивания." in output
 
 
 def test_describe_tree_end_to_end(mem_conn: sqlite3.Connection) -> None:
