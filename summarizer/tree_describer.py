@@ -37,6 +37,9 @@ MARKDOWN_RENDER_WIDTH = 150
 OUTLINE_PREVIEW_LIMIT = 5
 OUTLINE_DESCRIPTION_INDENT_MIN = 4
 HTML_BRANCH_PREVIEW_LIMIT = 16
+INDEX_LABEL_DISPLAY_LIMIT = 20
+INDEX_LABEL_CUT_MARKER = "...[cut]"
+ROOT_SUBPROGRAM_LABEL = "root"
 
 
 def describe_tree(
@@ -778,9 +781,9 @@ def render_tree_html(node: DescriptionNode) -> str:
     }}
 
     .page-shell {{
-      width: min(1500px, calc(100vw - 40px));
-      margin: 0 auto;
-      padding: 32px 0 56px;
+      width: 100%;
+      margin: 0;
+      padding: 32px 20px 56px;
     }}
 
     .hero {{
@@ -976,6 +979,13 @@ def render_tree_html(node: DescriptionNode) -> str:
       overflow-wrap: anywhere;
     }}
 
+    .branch-scope {{
+      color: var(--ink-soft);
+      font-size: 0.82rem;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+    }}
+
     .branch-overflow {{
       padding: 14px 16px;
       border-radius: 18px;
@@ -1043,7 +1053,7 @@ def render_tree_html(node: DescriptionNode) -> str:
     }}
 
     .tree-table col.no-col {{
-      width: 10.5rem;
+      width: 12rem;
     }}
 
     .tree-table col.level-col {{
@@ -1055,7 +1065,7 @@ def render_tree_html(node: DescriptionNode) -> str:
     }}
 
     .tree-table col.node-col {{
-      width: 26rem;
+      width: 32rem;
     }}
 
     .tree-table col.lines-col {{
@@ -1102,6 +1112,7 @@ def render_tree_html(node: DescriptionNode) -> str:
     .row-anchor {{
       font-weight: 700;
       color: var(--accent-cool);
+      font-family: "Consolas", "SFMono-Regular", monospace;
     }}
 
     .row-anchor:hover {{
@@ -1129,24 +1140,7 @@ def render_tree_html(node: DescriptionNode) -> str:
     }}
 
     .node-shell {{
-      position: relative;
       min-height: 30px;
-      padding-left: calc(10px + var(--depth) * 18px);
-    }}
-
-    .node-shell.has-depth::before {{
-      content: "";
-      position: absolute;
-      left: 4px;
-      top: 4px;
-      bottom: 4px;
-      width: calc(var(--depth) * 18px);
-      background-image: repeating-linear-gradient(
-        to right,
-        var(--guide) 0 1px,
-        transparent 1px 18px
-      );
-      pointer-events: none;
     }}
 
     .node-title {{
@@ -1155,6 +1149,29 @@ def render_tree_html(node: DescriptionNode) -> str:
       line-height: 1.45;
       font-weight: 700;
       overflow-wrap: anywhere;
+    }}
+
+    .node-scope {{
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 8px;
+      margin-top: 6px;
+      color: var(--ink-soft);
+      line-height: 1.4;
+    }}
+
+    .node-scope-label {{
+      color: var(--accent-cool);
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }}
+
+    .node-scope-value {{
+      font-family: "Consolas", "SFMono-Regular", monospace;
+      font-size: 0.86rem;
     }}
 
     .node-caption {{
@@ -1185,8 +1202,8 @@ def render_tree_html(node: DescriptionNode) -> str:
 
     @media (max-width: 980px) {{
       .page-shell {{
-        width: min(100vw - 24px, 100%);
-        padding-top: 18px;
+        width: 100%;
+        padding: 18px 12px 36px;
       }}
 
       .hero,
@@ -1246,7 +1263,7 @@ def render_tree_html(node: DescriptionNode) -> str:
           <p class="section-kicker">Hierarchy</p>
           <h2>Presentation table</h2>
         </div>
-        <p class="section-note">A flat, scan-friendly view of the full tree with visual depth, sticky headers and direct anchors for every node.</p>
+        <p class="section-note">A flat, scan-friendly view of the full tree with sticky headers, direct anchors and explicit subprogram context for every node.</p>
       </div>
       <div class="legend-row">
         {legend_html}
@@ -1340,16 +1357,19 @@ def _collect_tree_rows(node: DescriptionNode) -> list[dict[str, object]]:
 
     def visit(current: DescriptionNode, index_path: list[int]) -> None:
         depth = len(index_path) - 1
+        full_index_label = ".".join(str(part) for part in index_path)
         rows.append(
             {
                 "node": current,
                 "depth": depth,
-                "index_label": ".".join(str(part) for part in index_path),
+                "index_label": full_index_label,
+                "index_display": _truncate_index_label(full_index_label),
                 "row_id": "node-" + "-".join(str(part) for part in index_path),
                 "line_span": _format_line_span(current),
                 "badge_label": _html_badge_label(current),
                 "badge_class": f"kind-{current.node_kind}",
                 "caption": _html_caption(current),
+                "subprogram_label": _display_subprogram_label(current),
             }
         )
         for position, child in enumerate(current.children, start=1):
@@ -1371,8 +1391,9 @@ def _append_outline_node(
     index_path: list[int],
     max_width: int,
 ) -> None:
-    index_label = ".".join(str(part) for part in index_path)
-    lines.append(f"{index_label} {_outline_title(node)}")
+    full_index_label = ".".join(str(part) for part in index_path)
+    index_label = _truncate_index_label(full_index_label)
+    lines.append(f"{index_label} {_outline_title(node)} [{_markdown_subprogram_label(node)}]")
 
     if node.description:
         description_indent = " " * max(len(index_label) + 1, OUTLINE_DESCRIPTION_INDENT_MIN)
@@ -1459,11 +1480,13 @@ def _render_branch_links(node: DescriptionNode) -> str:
     for position, child in enumerate(node.children[:HTML_BRANCH_PREVIEW_LIMIT], start=1):
         row_id = f"node-1-{position}"
         title = _truncate_text(_outline_title(child, include_line_span=False), 56)
+        branch_scope = _display_subprogram_label(child)
         items.append(
             f"""
         <a class="branch-chip" href="#{row_id}">
           <span class="branch-no">1.{position}</span>
           <span class="branch-title">{escape(title)}</span>
+          <span class="branch-scope">Subprogram: {escape(branch_scope)}</span>
         </a>"""
         )
 
@@ -1513,11 +1536,13 @@ def _render_html_row(row: dict[str, object]) -> str:
     assert isinstance(node, DescriptionNode)
     depth = int(row["depth"])
     index_label = str(row["index_label"])
+    index_display = str(row["index_display"])
     row_id = str(row["row_id"])
     line_span = str(row["line_span"])
     badge_label = str(row["badge_label"])
     badge_class = str(row["badge_class"])
     caption = str(row["caption"])
+    subprogram_label = str(row["subprogram_label"])
 
     row_classes = []
     if depth == 0:
@@ -1525,23 +1550,24 @@ def _render_html_row(row: dict[str, object]) -> str:
     if depth == 1:
         row_classes.append("group-start")
 
-    node_classes = "node-shell"
-    if depth > 0:
-        node_classes += " has-depth"
-
     summary_html = _html_text(node.description) if node.description else '<span class="summary-empty">No description</span>'
     caption_html = f'<div class="node-caption">{escape(caption)}</div>' if caption else ""
     line_html = f'<span class="line-pill">{escape(line_span)}</span>' if line_span else '<span class="line-pill empty">n/a</span>'
     row_class_attr = f' class="{" ".join(row_classes)}"' if row_classes else ""
+    index_title_attr = f' title="{escape(index_label)}"' if index_display != index_label else ""
 
     return f"""
             <tr id="{escape(row_id)}"{row_class_attr}>
-              <td><a class="row-anchor" href="#{escape(row_id)}">{escape(index_label)}</a></td>
+              <td><a class="row-anchor" href="#{escape(row_id)}"{index_title_attr}>{escape(index_display)}</a></td>
               <td><span class="level-pill">{depth}</span></td>
               <td><span class="kind-badge {escape(badge_class)}">{escape(badge_label)}</span></td>
               <td>
-                <div class="{node_classes}" style="--depth: {depth};">
-                  <div class="node-title">{escape(_outline_title(node, include_line_span=False))}</div>{caption_html}
+                <div class="node-shell">
+                  <div class="node-title">{escape(_outline_title(node, include_line_span=False))}</div>
+                  <div class="node-scope">
+                    <span class="node-scope-label">Subprogram</span>
+                    <span class="node-scope-value">{escape(subprogram_label)}</span>
+                  </div>{caption_html}
                 </div>
               </td>
               <td>{line_html}</td>
@@ -1581,6 +1607,21 @@ def _truncate_text(text: str, limit: int) -> str:
     if len(stripped) <= limit:
         return stripped
     return stripped[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _truncate_index_label(index_label: str, limit: int = INDEX_LABEL_DISPLAY_LIMIT) -> str:
+    if len(index_label) <= limit:
+        return index_label
+    return index_label[:limit].rstrip(".") + INDEX_LABEL_CUT_MARKER
+
+
+def _display_subprogram_label(node: DescriptionNode) -> str:
+    subprogram = " ".join((node.subprogram or "").split())
+    return subprogram or ROOT_SUBPROGRAM_LABEL
+
+
+def _markdown_subprogram_label(node: DescriptionNode) -> str:
+    return f"subprogram={_display_subprogram_label(node)}"
 
 
 def _html_text(text: str) -> str:

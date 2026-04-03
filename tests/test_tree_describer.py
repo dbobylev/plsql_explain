@@ -193,17 +193,20 @@ def test_render_tree_output() -> None:
         node_id="test/seq:0", node_kind="statement", statement_type="OTHER",
         title="OTHER", source_text="v_x := 1;", start_line=1, end_line=1,
         description="Присваивает v_x значение 1",
+        subprogram="PROC_MAIN",
     )
     child2 = DescriptionNode(
         node_id="test/seq:1", node_kind="statement", statement_type="SQL_SELECT",
         title="SQL_SELECT", source_text="SELECT 1 FROM DUAL", start_line=2, end_line=2,
         description="Выбирает единицу из DUAL",
+        subprogram="PROC_MAIN",
     )
     root = DescriptionNode(
         node_id="test/root", node_kind="method_root", statement_type="METHOD",
         title="PROC_MAIN", source_text="", start_line=1, end_line=10,
         description="Основная процедура",
         children=[child1, child2],
+        subprogram="PROC_MAIN",
     )
 
     output = render_tree(root)
@@ -212,9 +215,9 @@ def test_render_tree_output() -> None:
     assert "## Overview" in output
     assert "## Numbered Outline" in output
     assert "- Total nodes: `3`" in output
-    assert "1 PROC_MAIN L1-L10" in output
-    assert "1.1 OTHER L1" in output
-    assert "1.2 SQL_SELECT L2" in output
+    assert "1 PROC_MAIN L1-L10 [subprogram=PROC_MAIN]" in output
+    assert "1.1 OTHER L1 [subprogram=PROC_MAIN]" in output
+    assert "1.2 SQL_SELECT L2 [subprogram=PROC_MAIN]" in output
     assert "Присваивает v_x" in output
     assert "Выбирает единицу" in output
 
@@ -232,6 +235,7 @@ def test_render_tree_wraps_descriptions_in_outline() -> None:
             "Это очень длинное описание узла, которое должно быть перенесено "
             "на несколько строк с сохранением аккуратного выравнивания."
         ),
+        subprogram="PROC_MAIN",
     )
     root = DescriptionNode(
         node_id="test/root",
@@ -243,11 +247,12 @@ def test_render_tree_wraps_descriptions_in_outline() -> None:
         end_line=10,
         description="Корневое описание",
         children=[child],
+        subprogram="PROC_MAIN",
     )
 
     output = render_tree(root, max_width=60)
 
-    assert "1.1 OTHER L2" in output
+    assert "1.1 OTHER L2 [subprogram=PROC_MAIN]" in output
     assert "    Это очень длинное описание узла, которое должно" in output
     assert "    перенесено на несколько строк с сохранением аккуратного" in output
     assert "    выравнивания." in output
@@ -263,6 +268,7 @@ def test_render_tree_html_output() -> None:
         start_line=4,
         end_line=8,
         description="Выполняет <dangerous> шаг и возвращает результат.",
+        subprogram="DO_WORK",
     )
     root = DescriptionNode(
         node_id="test/root",
@@ -288,6 +294,48 @@ def test_render_tree_html_output() -> None:
     assert "CALL -&gt; PKG_B.DO_WORK" in output
     assert "&lt;b&gt;расчёта&lt;/b&gt;" in output
     assert "&lt;dangerous&gt;" in output
+    assert "Subprogram" in output
+    assert "PROC_MAIN" in output
+    assert "DO_WORK" in output
+    assert "width: 100%;" in output
+    assert "padding-left: calc(10px + var(--depth) * 18px);" not in output
+
+
+def test_render_tree_truncates_long_index_labels_in_markdown_and_html() -> None:
+    current = DescriptionNode(
+        node_id="test/root",
+        node_kind="method_root",
+        statement_type="METHOD",
+        title="PROC_MAIN",
+        source_text="",
+        start_line=1,
+        end_line=20,
+        description="Корневое описание",
+        subprogram="PROC_MAIN",
+    )
+    root = current
+
+    for depth in range(1, 12):
+        child = DescriptionNode(
+            node_id=f"test/seq:{depth}",
+            node_kind="statement",
+            statement_type="OTHER",
+            title="OTHER",
+            source_text="v_x := 1;",
+            start_line=depth + 1,
+            end_line=depth + 1,
+            description=f"Описание {depth}",
+            subprogram="PROC_MAIN",
+        )
+        current.children = [child]
+        current = child
+
+    md_output = render_tree(root)
+    html_output = render_tree_html(root)
+
+    assert "...[cut] OTHER" in md_output
+    assert "...[cut]" in html_output
+    assert 'title="1.1.1.1.1.1.1.1.1.1.1.1"' in html_output
 
 
 def test_render_tree_html_from_run_uses_persisted_rows(mem_conn: sqlite3.Connection) -> None:
