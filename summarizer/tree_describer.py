@@ -148,6 +148,7 @@ def _run_incremental_analysis(
         (dep_node.subprogram or "").upper(),
     )
     in_stack = {key}
+    described_callees: set[tuple[str, str, str]] = set()
 
     tree = build_description_tree(
         conn,
@@ -169,6 +170,7 @@ def _run_incremental_analysis(
         parent_node_id=None,
         position=0,
         in_stack=in_stack,
+        described_callees=described_callees,
         max_depth=max_depth,
         depth=0,
     )
@@ -188,6 +190,7 @@ def _describe_local_node(
     parent_node_id: Optional[str],
     position: int,
     in_stack: set[tuple[str, str, str]],
+    described_callees: set[tuple[str, str, str]],
     max_depth: Optional[int],
     depth: int,
 ) -> DescriptionNode:
@@ -210,6 +213,7 @@ def _describe_local_node(
                 parent_node_id=node.node_id,
                 position=child_position,
                 in_stack=in_stack,
+                described_callees=described_callees,
                 max_depth=max_depth,
                 depth=depth,
             )
@@ -233,6 +237,7 @@ def _describe_local_node(
                     force=force,
                     run_id=run_id,
                     in_stack=in_stack,
+                    described_callees=described_callees,
                     max_depth=max_depth,
                     depth=depth,
                 )
@@ -270,6 +275,7 @@ def _describe_inline_call(
     force: bool,
     run_id: str,
     in_stack: set[tuple[str, str, str]],
+    described_callees: set[tuple[str, str, str]],
     max_depth: Optional[int],
     depth: int,
 ) -> DescriptionNode:
@@ -353,6 +359,40 @@ def _describe_inline_call(
         )
         return _make_summary_ref(stub)
 
+    # Deduplication: if this callee was already fully described in this run,
+    # insert a collapsed reference node without re-traversing its subtree.
+    if callee_key in described_callees:
+        callee_name = _display_dependency_name(callee_dep, current_schema=caller_dep.schema_name)
+        call_node_id = f"{parent_node.node_id}/call:{_dependency_slug(callee_dep)}:{position}"
+        ref_node = DescriptionNode(
+            node_id=call_node_id,
+            node_kind="call",
+            statement_type="CALL",
+            title=f"CALL -> {callee_name}",
+            source_text="",
+            start_line=0,
+            end_line=0,
+            description=f"[→ описано выше: {callee_name}]",
+            children=[],
+            schema_name=callee_dep.schema_name,
+            object_name=callee_dep.object_name,
+            subprogram=callee_dep.subprogram or "",
+        )
+        _describe_and_persist_node(
+            conn,
+            ref_node,
+            client,
+            root_schema,
+            root_object_name,
+            root_obj_type,
+            root_subprogram,
+            force,
+            run_id,
+            parent_node.node_id,
+            position,
+        )
+        return _make_summary_ref(ref_node)
+
     resolved_callee = resolve_node_shallow(
         conn,
         callee_dep.schema_name,
@@ -389,6 +429,7 @@ def _describe_inline_call(
                     parent_node_id=call_node_id,
                     position=child_position,
                     in_stack=in_stack,
+                    described_callees=described_callees,
                     max_depth=max_depth,
                     depth=depth + 1,
                 )
@@ -431,6 +472,7 @@ def _describe_inline_call(
         parent_node.node_id,
         position,
     )
+    described_callees.add(callee_key)
     return _make_summary_ref(call_node)
 
 
