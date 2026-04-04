@@ -203,7 +203,7 @@ def _substatement_to_desc_node(
         node_kind="statement",
         statement_type=node.statement_type,
         title=node.statement_type,
-        source_text=rendered,
+        source_text=node.source_text,
         start_line=node.start_line,
         end_line=node.end_line,
         description="",
