@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from html import escape
-from typing import Optional
 
 from summarizer.description_tree import DescriptionNode
+
+_BEGIN_END_TYPES = {"BEGIN_END"}
 
 
 def render_tree_compact_html(root: DescriptionNode) -> str:
@@ -33,7 +34,7 @@ def render_tree_compact_html(root: DescriptionNode) -> str:
         "<!DOCTYPE html>\n"
         "<html>\n"
         "<head>\n"
-        f'<meta charset="utf-8">\n'
+        '<meta charset="utf-8">\n'
         f"<title>{escape(root.title)}</title>\n"
         "</head>\n"
         '<body style="font-family:monospace;font-size:small">\n'
@@ -69,17 +70,17 @@ def _render_top_nav(root: DescriptionNode, anchor_map: dict[str, str]) -> str:
 def _render_section(node: DescriptionNode, anchor_map: dict[str, str]) -> str:
     anchor = anchor_map[node.node_id]
     heading_label = escape(_node_label(node))
-    kind_label = escape(node.node_kind)
+    subprogram_line = _subprogram_path(node)
 
     rows: list[str] = []
 
     # Parent row (the node itself)
     rows.append(_render_row(
         name_html=f'<a id="{anchor}"><b>{heading_label}</b></a>',
-        kind=node.node_kind,
-        statement_type=node.statement_type,
+        start_line=node.start_line,
+        end_line=node.end_line,
         description=node.description,
-        source_text=node.source_text,
+        source_text=_source_text_for_display(node),
         is_header=True,
     ))
 
@@ -92,24 +93,24 @@ def _render_section(node: DescriptionNode, anchor_map: dict[str, str]) -> str:
             name_html = escape(_node_label(child))
         rows.append(_render_row(
             name_html=name_html,
-            kind=child.node_kind,
-            statement_type=child.statement_type,
+            start_line=child.start_line,
+            end_line=child.end_line,
             description=child.description,
-            source_text=child.source_text,
+            source_text=_source_text_for_display(child),
             is_header=False,
         ))
 
     rows_html = "\n".join(rows)
     return (
-        f'<h3><a id="{anchor}_h">{heading_label}</a> '
-        f'<small style="font-weight:normal">({kind_label})</small></h3>\n'
+        f'<h3><a id="{anchor}_h">{heading_label}</a></h3>\n'
+        f'<p style="margin:0 0 4px 0"><small>{escape(subprogram_line)}</small></p>\n'
         '<table border="1" cellspacing="0" cellpadding="2" '
         'style="border-collapse:collapse;width:100%">\n'
         "<tr>"
-        '<th style="width:18%">Имя</th>'
-        '<th style="width:6%">Тип</th>'
-        '<th style="width:38%">Описание</th>'
-        '<th style="width:38%">Код</th>'
+        '<th style="width:22%">Имя</th>'
+        '<th style="width:8%">Строки</th>'
+        '<th style="width:35%">Описание</th>'
+        '<th style="width:35%">Код</th>'
         "</tr>\n"
         f"{rows_html}\n"
         "</table>\n"
@@ -118,14 +119,14 @@ def _render_section(node: DescriptionNode, anchor_map: dict[str, str]) -> str:
 
 def _render_row(
     name_html: str,
-    kind: str,
-    statement_type: str,
+    start_line: int,
+    end_line: int,
     description: str,
     source_text: str,
     is_header: bool,
 ) -> str:
     bg = ' style="background:#f0f0f0"' if is_header else ""
-    kind_cell = escape(statement_type) if statement_type and statement_type != kind.upper() else escape(kind)
+    lines_cell = _format_lines(start_line, end_line)
     desc_cell = escape(description) if description else ""
     src_cell = (
         f'<pre style="margin:0;white-space:pre-wrap;font-size:x-small">{escape(source_text)}</pre>'
@@ -135,11 +136,36 @@ def _render_row(
     return (
         f"<tr{bg}>"
         f"<td>{name_html}</td>"
-        f"<td>{kind_cell}</td>"
+        f"<td>{lines_cell}</td>"
         f"<td>{desc_cell}</td>"
         f"<td>{src_cell}</td>"
         "</tr>"
     )
+
+
+def _source_text_for_display(node: DescriptionNode) -> str:
+    if node.statement_type.upper() in _BEGIN_END_TYPES:
+        return ""
+    return node.source_text
+
+
+def _format_lines(start_line: int, end_line: int) -> str:
+    if not start_line and not end_line:
+        return ""
+    if start_line == end_line:
+        return str(start_line)
+    return f"{start_line}–{end_line}"
+
+
+def _subprogram_path(node: DescriptionNode) -> str:
+    parts = []
+    if node.schema_name:
+        parts.append(node.schema_name.upper())
+    if node.object_name:
+        parts.append(node.object_name.upper())
+    if node.subprogram:
+        parts.append(node.subprogram.upper())
+    return ".".join(parts)
 
 
 def _node_label(node: DescriptionNode) -> str:
