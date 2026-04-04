@@ -622,7 +622,7 @@ def load_tree_from_run(conn: sqlite3.Connection, run_id: str) -> DescriptionNode
             node_kind=row["node_kind"],
             statement_type=row["statement_type"],
             title=row["title"],
-            source_text="",
+            source_text=row["source_text"],
             start_line=row["start_line"],
             end_line=row["end_line"],
             description=row["description"],
@@ -653,6 +653,11 @@ def render_tree_from_run(conn: sqlite3.Connection, run_id: str) -> str:
 
 def render_tree_html_from_run(conn: sqlite3.Connection, run_id: str) -> str:
     return render_tree_html(load_tree_from_run(conn, run_id))
+
+
+def render_tree_compact_html_from_run(conn: sqlite3.Connection, run_id: str) -> str:
+    from summarizer.tree_renderer_compact import render_tree_compact_html
+    return render_tree_compact_html(load_tree_from_run(conn, run_id))
 
 
 def render_tree(

@@ -244,6 +244,7 @@ def _migrate_node_description_table(conn: sqlite3.Connection) -> None:
                 title           TEXT NOT NULL DEFAULT '',
                 start_line      INTEGER NOT NULL DEFAULT 0,
                 end_line        INTEGER NOT NULL DEFAULT 0,
+                source_text     TEXT NOT NULL DEFAULT '',
                 parent_node_id  TEXT,
                 position        INTEGER NOT NULL DEFAULT 0,
                 source_hash     TEXT NOT NULL,
@@ -258,6 +259,10 @@ def _migrate_node_description_table(conn: sqlite3.Connection) -> None:
 
     expected_columns = ("run_id", "node_id")
     if "run_id" in columns and _table_has_unique_index(conn, "node_description", expected_columns):
+        if "source_text" not in columns:
+            conn.execute(
+                "ALTER TABLE node_description ADD COLUMN source_text TEXT NOT NULL DEFAULT ''"
+            )
         return
 
     old_rows = conn.execute("SELECT * FROM node_description").fetchall()
@@ -277,6 +282,7 @@ def _migrate_node_description_table(conn: sqlite3.Connection) -> None:
             title           TEXT NOT NULL DEFAULT '',
             start_line      INTEGER NOT NULL DEFAULT 0,
             end_line        INTEGER NOT NULL DEFAULT 0,
+            source_text     TEXT NOT NULL DEFAULT '',
             parent_node_id  TEXT,
             position        INTEGER NOT NULL DEFAULT 0,
             source_hash     TEXT NOT NULL,

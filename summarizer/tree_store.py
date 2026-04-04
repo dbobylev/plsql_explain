@@ -253,9 +253,9 @@ def upsert_run_node_description(
             INSERT INTO node_description
                 (run_id, schema_name, object_name, object_type, subprogram,
                  node_id, node_kind, statement_type, title,
-                 start_line, end_line, parent_node_id, position,
+                 start_line, end_line, source_text, parent_node_id, position,
                  source_hash, description, prompt_version, described_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(run_id, node_id)
             DO UPDATE SET schema_name=excluded.schema_name,
                           object_name=excluded.object_name,
@@ -266,6 +266,7 @@ def upsert_run_node_description(
                           title=excluded.title,
                           start_line=excluded.start_line,
                           end_line=excluded.end_line,
+                          source_text=excluded.source_text,
                           parent_node_id=excluded.parent_node_id,
                           position=excluded.position,
                           source_hash=excluded.source_hash,
@@ -285,6 +286,7 @@ def upsert_run_node_description(
                 node.title,
                 node.start_line,
                 node.end_line,
+                node.source_text,
                 parent_node_id,
                 position,
                 node.source_hash,
