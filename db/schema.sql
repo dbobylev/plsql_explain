@@ -148,3 +148,13 @@ CREATE TABLE IF NOT EXISTS node_description (
     described_at    TEXT NOT NULL,
     UNIQUE(run_id, node_id)
 );
+
+CREATE TABLE IF NOT EXISTS node_embedding (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_description_id INTEGER NOT NULL,
+    embedding_model     TEXT NOT NULL,
+    embed_text          TEXT NOT NULL,
+    embedding           BLOB NOT NULL,
+    embedded_at         TEXT NOT NULL,
+    UNIQUE(node_description_id, embedding_model)
+);

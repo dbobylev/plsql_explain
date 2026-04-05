@@ -212,6 +212,78 @@ def cmd_sync_table_meta(args: argparse.Namespace) -> None:
     run(schema=args.schema, object_name=args.object)
 
 
+def cmd_embed(args: argparse.Namespace) -> None:
+    ensure_logging_configured(getattr(args, "log_level", None))
+    from dotenv import load_dotenv
+    load_dotenv()
+    import sqlite3
+    from fetcher.sqlite_store import init_db
+    from rag.embedder import EmbeddingClient, run_embed
+
+    if args.model:
+        os.environ["LLM_EMBEDDING_MODEL"] = args.model
+
+    db_path = os.environ.get("SQLITE_PATH", "./data/plsql.db")
+    init_db()
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        client = EmbeddingClient()
+        _logger.info("Модель эмбеддинга: %s", client.model)
+        count = run_embed(conn, client, schema=args.schema, object_name=args.object)
+    finally:
+        conn.close()
+    print(f"Проиндексировано узлов: {count}")
+
+
+def cmd_search(args: argparse.Namespace) -> None:
+    ensure_logging_configured(getattr(args, "log_level", None))
+    from dotenv import load_dotenv
+    load_dotenv()
+    import sqlite3
+    from fetcher.sqlite_store import init_db
+    from rag.embedder import EmbeddingClient
+    from rag.search import search
+
+    if args.model:
+        os.environ["LLM_EMBEDDING_MODEL"] = args.model
+
+    db_path = os.environ.get("SQLITE_PATH", "./data/plsql.db")
+    init_db()
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        client = EmbeddingClient()
+        results = search(
+            conn,
+            args.query,
+            client,
+            schema=args.schema,
+            object_name=args.object,
+            top_k=args.top_k,
+        )
+    finally:
+        conn.close()
+
+    if not results:
+        print("Ничего не найдено.")
+        return
+
+    for i, r in enumerate(results, 1):
+        obj_path = f"{r.schema_name}.{r.object_name}"
+        if r.subprogram:
+            obj_path += f".{r.subprogram}"
+        print(f"\n{'=' * 60}")
+        print(f"#{i} [{r.score:.3f}] {obj_path} | {r.statement_type} | {r.title}")
+        print(f"  {r.description}")
+        if r.source_text.strip():
+            lines = r.source_text.strip().splitlines()
+            preview = "\n  ".join(lines[:5])
+            if len(lines) > 5:
+                preview += f"\n  ... (+{len(lines) - 5} строк)"
+            print(f"  ---\n  {preview}")
+
+
 def cmd_debug(args: argparse.Namespace) -> None:
     ensure_logging_configured(getattr(args, "log_level", None))
     from dotenv import load_dotenv
@@ -297,6 +369,36 @@ def build_parser() -> argparse.ArgumentParser:
     explain_parser.add_argument("--depth", type=int, default=None, help="Максимальная глубина обхода зависимостей")
     explain_parser.add_argument("--verbose", "-v", action="store_true", help="Подробный вывод: схема, тип, ошибки, обращения к таблицам")
     explain_parser.set_defaults(func=cmd_explain)
+
+    embed_parser = subparsers.add_parser(
+        "embed",
+        parents=[common_parser],
+        help="Сгенерировать эмбеддинги для узлов описания (RAG-индексация)",
+    )
+    embed_parser.add_argument("--schema", required=True, help="Имя схемы Oracle")
+    embed_parser.add_argument("--object", default=None, help="Имя конкретного объекта (опционально)")
+    embed_parser.add_argument(
+        "--model",
+        default=None,
+        help="Модель эмбеддинга (переопределяет LLM_EMBEDDING_MODEL из .env)",
+    )
+    embed_parser.set_defaults(func=cmd_embed)
+
+    search_parser = subparsers.add_parser(
+        "search",
+        parents=[common_parser],
+        help="Семантический поиск по проиндексированным описаниям (RAG)",
+    )
+    search_parser.add_argument("query", help="Поисковый запрос на естественном языке")
+    search_parser.add_argument("--schema", default=None, help="Ограничить поиск схемой")
+    search_parser.add_argument("--object", default=None, help="Ограничить поиск объектом")
+    search_parser.add_argument("--top-k", type=int, default=10, help="Количество результатов (по умолчанию: 10)")
+    search_parser.add_argument(
+        "--model",
+        default=None,
+        help="Модель эмбеддинга (переопределяет LLM_EMBEDDING_MODEL из .env)",
+    )
+    search_parser.set_defaults(func=cmd_search)
 
     debug_parser = subparsers.add_parser(
         "debug",

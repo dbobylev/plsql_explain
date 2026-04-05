@@ -1,5 +1,6 @@
 oracledb>=2.0.0
 python-dotenv>=1.0.0
 openai>=1.0.0
+numpy>=1.26.0
 pytest>=8.0.0
 pytest-cov>=5.0.0

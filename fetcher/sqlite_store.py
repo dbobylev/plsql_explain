@@ -28,6 +28,7 @@ def init_db() -> None:
         _migrate_analysis_cache_table(conn)
         _migrate_analysis_run_table(conn)
         _migrate_node_description_table(conn)
+        _migrate_node_embedding_table(conn)
 
 
 def _hash(text: str) -> str:
@@ -358,6 +359,25 @@ def _migrate_node_description_table(conn: sqlite3.Connection) -> None:
         )
 
     conn.execute("DROP TABLE node_description__old")
+
+
+def _migrate_node_embedding_table(conn: sqlite3.Connection) -> None:
+    columns = _table_columns(conn, "node_embedding")
+    if columns:
+        return
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS node_embedding (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            node_description_id INTEGER NOT NULL,
+            embedding_model     TEXT NOT NULL,
+            embed_text          TEXT NOT NULL,
+            embedding           BLOB NOT NULL,
+            embedded_at         TEXT NOT NULL,
+            UNIQUE(node_description_id, embedding_model)
+        );
+        """
+    )
 
 
 def _table_has_unique_index(
