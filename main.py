@@ -54,12 +54,12 @@ def build_summary_path(
     return Path(output_dir) / build_summary_filename(args, timestamp=timestamp)
 
 
-def build_summary_html_path(
+def build_summary_compact_html_path(
     args: argparse.Namespace,
     output_dir: str | Path = SUMMARY_OUTPUT_DIR,
     timestamp: datetime | None = None,
 ) -> Path:
-    return Path(output_dir) / build_output_filename(args, ".html", timestamp=timestamp)
+    return Path(output_dir) / build_output_filename(args, "_compact.html", timestamp=timestamp)
 
 
 def write_summary_output(
@@ -75,16 +75,16 @@ def write_summary_output(
     return summary_path
 
 
-def write_summary_html_output(
+def write_summary_compact_html_output(
     args: argparse.Namespace,
     summary_html: str,
     output_dir: str | Path = SUMMARY_OUTPUT_DIR,
     timestamp: datetime | None = None,
 ) -> Path:
-    summary_path = build_summary_html_path(args, output_dir=output_dir, timestamp=timestamp)
+    summary_path = build_summary_compact_html_path(args, output_dir=output_dir, timestamp=timestamp)
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(summary_html, encoding="utf-8")
-    _logger.debug("HTML summary written to %s", summary_path)
+    _logger.debug("Compact HTML summary written to %s", summary_path)
     return summary_path
 
 
@@ -98,7 +98,7 @@ def cmd_summarize(args: argparse.Namespace) -> None:
     from summarizer.tree_describer import (
         describe_tree_run,
         render_tree_from_run,
-        render_tree_html_from_run,
+        render_tree_compact_html_from_run,
     )
 
     db_path = os.environ.get("SQLITE_PATH", "./data/plsql.db")
@@ -124,12 +124,12 @@ def cmd_summarize(args: argparse.Namespace) -> None:
             max_depth=args.depth,
         )
         output = render_tree_from_run(conn, run_id)
-        output_html = render_tree_html_from_run(conn, run_id)
+        output_compact_html = render_tree_compact_html_from_run(conn, run_id)
     finally:
         conn.close()
     timestamp = datetime.now().astimezone()
     write_summary_output(args, output, timestamp=timestamp)
-    write_summary_html_output(args, output_html, timestamp=timestamp)
+    write_summary_compact_html_output(args, output_compact_html, timestamp=timestamp)
     _logger.info(output)
 
 

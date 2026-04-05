@@ -139,6 +139,7 @@ CREATE TABLE IF NOT EXISTS node_description (
     title           TEXT NOT NULL DEFAULT '',
     start_line      INTEGER NOT NULL DEFAULT 0,
     end_line        INTEGER NOT NULL DEFAULT 0,
+    source_text     TEXT NOT NULL DEFAULT '',
     parent_node_id  TEXT,
     position        INTEGER NOT NULL DEFAULT 0,
     source_hash     TEXT NOT NULL,
