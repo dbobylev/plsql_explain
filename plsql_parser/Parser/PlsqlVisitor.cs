@@ -52,6 +52,7 @@ public partial class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
     private readonly string _callerObject;
     private readonly string _callerType;
     private readonly string _sourceText;
+    private readonly CommonTokenStream _tokens;
     private readonly HashSet<string> _topLevelPackageSubprograms = new(StringComparer.OrdinalIgnoreCase);
 
     // Stack of enclosing subprogram names (null = package level or standalone object).
@@ -74,12 +75,13 @@ public partial class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
     // Per-subprogram seq counter: key = subprogram name (null → "")
     private readonly Dictionary<string, int> _seqCounters = new();
 
-    public PlsqlVisitor(string callerSchema, string callerObject, string callerType, string sourceText)
+    public PlsqlVisitor(string callerSchema, string callerObject, string callerType, string sourceText, CommonTokenStream tokens)
     {
         _callerSchema = callerSchema;
         _callerObject = callerObject;
         _callerType = callerType;
         _sourceText = sourceText;
+        _tokens = tokens;
         _subprogramStack.Push(null);
     }
 
@@ -176,6 +178,7 @@ public partial class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
             StartLine = ctx.Start.Line,
             EndLine = ctx.Stop?.Line ?? ctx.Start.Line,
             SourceText = GetSourceText(ctx),
+            PrecedingComment = GetPrecedingComment(ctx),
         });
     }
 

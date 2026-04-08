@@ -16,6 +16,7 @@ class SubstatementNode:
     end_line: int
     source_text: str
     source_hash: str
+    preceding_comment: str = ""
     children: list["SubstatementNode"] = field(default_factory=list)
 
 
@@ -85,7 +86,7 @@ def load_substatement_tree(
     rows = conn.execute(
         """
         SELECT seq, parent_seq, position, statement_type,
-               start_line, end_line, source_text, source_hash
+               start_line, end_line, source_text, preceding_comment, source_hash
         FROM substatement
         WHERE schema_name = ? AND object_name = ? AND object_type = ? AND subprogram = ?
         ORDER BY seq
@@ -107,6 +108,7 @@ def load_substatement_tree(
             end_line=r["end_line"],
             source_text=r["source_text"],
             source_hash=r["source_hash"],
+            preceding_comment=r["preceding_comment"],
         )
 
     roots: list[SubstatementNode] = []

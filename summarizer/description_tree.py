@@ -36,6 +36,7 @@ class DescriptionNode:
     source_hash: str = ""
     prompt_context: str = ""
     analysis_run_id: str = ""
+    preceding_comment: str = ""
 
 
 def _node_prefix(schema: str, obj: str, sub: Optional[str]) -> str:
@@ -213,6 +214,7 @@ def _substatement_to_desc_node(
         subprogram=subprogram,
         source_hash=node.source_hash,
         prompt_context=_substatement_prompt_context(node, rendered),
+        preceding_comment=node.preceding_comment,
     )
 
 
@@ -279,7 +281,24 @@ def _clone_with_rebased_ids(
         subprogram=node.subprogram,
         source_hash=node.source_hash,
         prompt_context=node.prompt_context,
+        preceding_comment=node.preceding_comment,
     )
+
+
+def _load_subprogram_comment(
+    conn: sqlite3.Connection,
+    schema: str,
+    obj_name: str,
+    obj_type: str,
+    subprogram_name: str,
+) -> str:
+    """Return the preceding_comment stored for a subprogram, or empty string."""
+    row = conn.execute(
+        "SELECT preceding_comment FROM subprogram "
+        "WHERE schema_name=? AND object_name=? AND object_type=? AND subprogram_name=?",
+        (schema.upper(), obj_name.upper(), obj_type.upper(), subprogram_name.upper()),
+    ).fetchone()
+    return row["preceding_comment"] if row else ""
 
 
 def build_description_tree(
@@ -315,6 +334,9 @@ def build_description_tree(
     # Load substatement tree
     roots = load_substatement_tree(conn, schema, obj_name, obj_type, sub or None)
 
+    # Load comment preceding the procedure/function declaration itself
+    sub_comment = _load_subprogram_comment(conn, schema, obj_name, obj_type, sub or obj_name)
+
     if not roots:
         # No substatements — method_root with full source
         source_text = _load_source_text(conn, schema, obj_name, obj_type)
@@ -332,6 +354,7 @@ def build_description_tree(
             object_name=obj_name,
             subprogram=sub,
             source_hash=source_hash or "",
+            preceding_comment=sub_comment,
         )
 
     # Convert substatement tree to description nodes
@@ -362,6 +385,7 @@ def build_description_tree(
         object_name=obj_name,
         subprogram=sub,
         source_hash=source_hash,
+        preceding_comment=sub_comment,
     )
 
     # Compute tree hashes bottom-up

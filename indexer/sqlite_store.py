@@ -116,8 +116,8 @@ def replace_subprograms(
         """
         INSERT OR IGNORE INTO subprogram
             (schema_name, object_name, object_type, subprogram_name, subprogram_type,
-             start_line, end_line, source_text, source_hash)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             start_line, end_line, source_text, source_hash, preceding_comment)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -126,6 +126,7 @@ def replace_subprograms(
                 sp.start_line, sp.end_line,
                 sp.source_text,
                 hashlib.sha256(sp.source_text.encode()).hexdigest(),
+                sp.preceding_comment,
             )
             for sp in subprograms
         ],
@@ -149,8 +150,8 @@ def replace_substatements(
         INSERT OR IGNORE INTO substatement
             (schema_name, object_name, object_type, subprogram,
              seq, parent_seq, position, statement_type,
-             start_line, end_line, source_text, source_hash)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             start_line, end_line, source_text, preceding_comment, source_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -160,6 +161,7 @@ def replace_substatements(
                 s.statement_type,
                 s.start_line, s.end_line,
                 s.source_text,
+                s.preceding_comment,
                 hashlib.sha256(s.source_text.encode()).hexdigest(),
             )
             for s in substatements

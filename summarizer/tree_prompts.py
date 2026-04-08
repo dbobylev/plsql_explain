@@ -37,6 +37,13 @@ def _format_prompt_context(title: str, text: str) -> str:
     return f"{title}:\n```\n{stripped}\n```\n\n"
 
 
+def _format_preceding_comment(comment: str) -> str:
+    stripped = comment.strip()
+    if not stripped:
+        return ""
+    return f"Комментарий разработчика:\n```\n{stripped}\n```\n\n"
+
+
 # ---------------------------------------------------------------------------
 # Strategy functions
 # ---------------------------------------------------------------------------
@@ -47,11 +54,13 @@ def _sql_strategy(node: DescriptionNode) -> tuple[str, str]:
         "Ты аналитик PL/SQL кода Oracle. "
         "Опиши SQL-операцию кратко и точно на русском языке."
     )
+    comment_block = _format_preceding_comment(node.preceding_comment)
     if node.children:
         children_text = _format_children_descriptions(node)
         hint = _description_length_hint(len(node.children))
         context = _format_prompt_context("Локальный фрагмент", node.prompt_context)
         user = (
+            f"{comment_block}"
             f"Операция: {operation}\n"
             f"{context}"
             f"Вложенные элементы:\n{children_text}\n\n"
@@ -60,6 +69,7 @@ def _sql_strategy(node: DescriptionNode) -> tuple[str, str]:
         )
     else:
         user = (
+            f"{comment_block}"
             f"Операция: {operation}\n"
             f"Код:\n```\n{node.source_text}\n```\n\n"
             f"Укажи какие таблицы затрагиваются, какие данные выбираются/изменяются, "
@@ -73,11 +83,13 @@ def _branching_strategy(node: DescriptionNode) -> tuple[str, str]:
         "Ты аналитик PL/SQL кода Oracle. "
         "Опиши условную логику кратко и точно на русском языке."
     )
+    comment_block = _format_preceding_comment(node.preceding_comment)
     if node.children:
         children_text = _format_children_descriptions(node)
         hint = _description_length_hint(len(node.children))
         context = _format_prompt_context("Условие/заголовок", node.prompt_context)
         user = (
+            f"{comment_block}"
             f"Конструкция: {node.statement_type}\n"
             f"{context}"
             f"Ветви:\n{children_text}\n\n"
@@ -85,6 +97,7 @@ def _branching_strategy(node: DescriptionNode) -> tuple[str, str]:
         )
     else:
         user = (
+            f"{comment_block}"
             f"Конструкция: {node.statement_type}\n"
             f"Код:\n```\n{node.source_text}\n```\n\n"
             f"Опиши логику ветвления и её назначение.\nОпиши 1-2 предложениями."
@@ -97,11 +110,13 @@ def _loop_strategy(node: DescriptionNode) -> tuple[str, str]:
         "Ты аналитик PL/SQL кода Oracle. "
         "Опиши цикл кратко и точно на русском языке."
     )
+    comment_block = _format_preceding_comment(node.preceding_comment)
     if node.children:
         children_text = _format_children_descriptions(node)
         hint = _description_length_hint(len(node.children))
         context = _format_prompt_context("Заголовок", node.prompt_context)
         user = (
+            f"{comment_block}"
             f"Цикл: {node.statement_type}\n"
             f"{context}"
             f"Тело цикла:\n{children_text}\n\n"
@@ -109,6 +124,7 @@ def _loop_strategy(node: DescriptionNode) -> tuple[str, str]:
         )
     else:
         user = (
+            f"{comment_block}"
             f"Цикл: {node.statement_type}\n"
             f"Код:\n```\n{node.source_text}\n```\n\n"
             f"Опиши что итерируется и зачем.\nОпиши 1-2 предложениями."
@@ -121,11 +137,13 @@ def _exception_strategy(node: DescriptionNode) -> tuple[str, str]:
         "Ты аналитик PL/SQL кода Oracle. "
         "Опиши обработку исключений кратко и точно на русском языке."
     )
+    comment_block = _format_preceding_comment(node.preceding_comment)
     if node.children:
         children_text = _format_children_descriptions(node)
         hint = _description_length_hint(len(node.children))
         context = _format_prompt_context("Локальный фрагмент", node.prompt_context)
         user = (
+            f"{comment_block}"
             f"Обработчик исключений:\n"
             f"{context}"
             f"Содержимое:\n{children_text}\n\n"
@@ -133,6 +151,7 @@ def _exception_strategy(node: DescriptionNode) -> tuple[str, str]:
         )
     else:
         user = (
+            f"{comment_block}"
             f"Обработчик исключений:\n"
             f"Код:\n```\n{node.source_text}\n```\n\n"
             f"Какие исключения перехватываются и как обрабатываются?\nОпиши 1-2 предложениями."
@@ -161,16 +180,19 @@ def _method_root_strategy(node: DescriptionNode) -> tuple[str, str]:
         "Ты аналитик PL/SQL кода Oracle. "
         "Опиши метод кратко и точно на русском языке."
     )
+    comment_block = _format_preceding_comment(node.preceding_comment)
     if node.children:
         children_text = _format_children_descriptions(node)
         hint = _description_length_hint(len(node.children))
         user = (
+            f"{comment_block}"
             f"Метод: {node.title}\n\n"
             f"Шаги метода:\n{children_text}\n\n"
             f"Опиши назначение метода.\n{hint}"
         )
     else:
         user = (
+            f"{comment_block}"
             f"Метод: {node.title}\n"
             f"Код:\n```\n{node.source_text}\n```\n\n"
             f"Опиши назначение метода.\nОпиши 1-2 предложениями."
@@ -183,11 +205,13 @@ def _default_strategy(node: DescriptionNode) -> tuple[str, str]:
         "Ты аналитик PL/SQL кода Oracle. "
         "Опиши фрагмент кратко и точно на русском языке."
     )
+    comment_block = _format_preceding_comment(node.preceding_comment)
     if node.children:
         children_text = _format_children_descriptions(node)
         hint = _description_length_hint(len(node.children))
         context = _format_prompt_context("Локальный фрагмент", node.prompt_context)
         user = (
+            f"{comment_block}"
             f"Тип: {node.statement_type}\n"
             f"{context}"
             f"Содержимое:\n{children_text}\n\n"
@@ -195,6 +219,7 @@ def _default_strategy(node: DescriptionNode) -> tuple[str, str]:
         )
     else:
         user = (
+            f"{comment_block}"
             f"Тип: {node.statement_type}\n"
             f"Код:\n```\n{node.source_text}\n```\n\n"
             f"Опиши кратко.\nОпиши 1-2 предложениями."

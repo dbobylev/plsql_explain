@@ -196,6 +196,7 @@ def parse_object(
                 start_line=sp["start_line"],
                 end_line=sp["end_line"],
                 source_text=sp["source_text"],
+                preceding_comment=sp.get("preceding_comment") or "",
             )
             for sp in data.get("subprograms", [])
         ],
@@ -209,6 +210,7 @@ def parse_object(
                 start_line=s["start_line"],
                 end_line=s["end_line"],
                 source_text=s["source_text"],
+                preceding_comment=s.get("preceding_comment") or "",
             )
             for s in data.get("substatements", [])
         ],
