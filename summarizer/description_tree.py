@@ -12,7 +12,7 @@ from summarizer.substatements import (
     load_substatement_tree,
     render_substatement,
 )
-from traversal.models import DependencyNode
+from traversal.models import DependencyNode, TableAccessInfo
 
 _logger = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ class DescriptionNode:
     prompt_context: str = ""
     analysis_run_id: str = ""
     preceding_comment: str = ""
+    table_accesses: list[TableAccessInfo] = field(default_factory=list)
 
 
 def _node_prefix(schema: str, obj: str, sub: Optional[str]) -> str:
@@ -192,11 +193,12 @@ def _substatement_to_desc_node(
     schema_name: str,
     object_name: str,
     subprogram: str,
+    table_accesses: list[TableAccessInfo] = (),
 ) -> DescriptionNode:
     """Convert a SubstatementNode to a DescriptionNode (without call expansion)."""
     rendered = render_substatement(node)
     children = [
-        _substatement_to_desc_node(child, prefix, schema_name, object_name, subprogram)
+        _substatement_to_desc_node(child, prefix, schema_name, object_name, subprogram, table_accesses)
         for child in node.children
     ]
     return DescriptionNode(
@@ -215,6 +217,7 @@ def _substatement_to_desc_node(
         source_hash=node.source_hash,
         prompt_context=_substatement_prompt_context(node, rendered),
         preceding_comment=node.preceding_comment,
+        table_accesses=list(table_accesses),
     )
 
 
@@ -282,6 +285,7 @@ def _clone_with_rebased_ids(
         source_hash=node.source_hash,
         prompt_context=node.prompt_context,
         preceding_comment=node.preceding_comment,
+        table_accesses=node.table_accesses,
     )
 
 
@@ -355,11 +359,13 @@ def build_description_tree(
             subprogram=sub,
             source_hash=source_hash or "",
             preceding_comment=sub_comment,
+            table_accesses=dep_node.table_accesses,
         )
 
     # Convert substatement tree to description nodes
     desc_children = [
-        _substatement_to_desc_node(root, prefix, schema, obj_name, sub) for root in roots
+        _substatement_to_desc_node(root, prefix, schema, obj_name, sub, dep_node.table_accesses)
+        for root in roots
     ]
 
     if expand_calls:
@@ -386,6 +392,7 @@ def build_description_tree(
         subprogram=sub,
         source_hash=source_hash,
         preceding_comment=sub_comment,
+        table_accesses=dep_node.table_accesses,
     )
 
     # Compute tree hashes bottom-up

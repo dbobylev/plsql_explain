@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from summarizer.description_tree import DescriptionNode
+from traversal.models import TableAccessInfo
 
 PROMPT_VERSION = "3"
 
@@ -59,6 +60,35 @@ def _format_preceding_comment(comment: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Table metadata formatting
+# ---------------------------------------------------------------------------
+
+def _format_table_metadata(
+    table_accesses: list[TableAccessInfo],
+    source_text: str,
+) -> str:
+    """Format table/column metadata filtered by what appears in source_text."""
+    if not table_accesses:
+        return ""
+    upper = source_text.upper()
+    lines = []
+    for acc in table_accesses:
+        if acc.table_name.upper() not in upper:
+            continue
+        comment = f" — {acc.table_comment}" if acc.table_comment else ""
+        lines.append(f"  {acc.table_name}{comment}")
+        for col in acc.columns:
+            if col.column_name.upper() not in upper:
+                continue
+            type_str = f" ({col.data_type})" if col.data_type else ""
+            col_comment = f" — {col.column_comment}" if col.column_comment else ""
+            lines.append(f"    {col.column_name}{type_str}{col_comment}")
+    if not lines:
+        return ""
+    return "Метаданные таблиц:\n" + "\n".join(lines) + "\n\n"
+
+
+# ---------------------------------------------------------------------------
 # Strategy functions
 # ---------------------------------------------------------------------------
 
@@ -73,19 +103,23 @@ def _sql_strategy(node: DescriptionNode) -> tuple[str, str]:
         children_text = _format_children_descriptions(node)
         hint = _description_length_hint(len(node.children))
         context = _format_prompt_context("Локальный фрагмент", node.prompt_context)
+        meta_block = _format_table_metadata(node.table_accesses, node.prompt_context)
         user = (
             f"{comment_block}"
             f"Операция: {operation}\n"
             f"{context}"
+            f"{meta_block}"
             f"Вложенные элементы:\n{children_text}\n\n"
             f"Укажи какие таблицы затрагиваются, какие данные выбираются/изменяются, "
             f"ключевые условия WHERE/JOIN.\n{hint}"
         )
     else:
+        meta_block = _format_table_metadata(node.table_accesses, node.source_text)
         user = (
             f"{comment_block}"
             f"Операция: {operation}\n"
             f"Код:\n```\n{node.source_text}\n```\n\n"
+            f"{meta_block}"
             f"Укажи какие таблицы затрагиваются, какие данные выбираются/изменяются, "
             f"ключевые условия WHERE/JOIN.\nОпиши 1-2 предложениями."
         )
