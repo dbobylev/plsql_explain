@@ -6,18 +6,14 @@ These tests call the real binary and require it to be built first:
 Skipped automatically if the binary is missing or the required .NET runtime
 is not installed on the current machine.
 """
-import os
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from parser.runner import parse_object, ParserError, _subprocess_env
+from parser.runner import parse_object, _parser_path, _subprocess_env
 
-_BINARY_PATH = os.environ.get(
-    "PLSQL_PARSER_PATH",
-    "./plsql_parser/bin/Release/net8.0/PlsqlParser",
-)
+_BINARY_PATH = _parser_path()
 
 
 def _binary_runnable() -> bool:
@@ -235,6 +231,22 @@ CREATE OR REPLACE PACKAGE BODY TEST_PKG AS
 END TEST_PKG;
 """
 
+_PKG_WITH_PRECEDING_COMMENTS = """\
+CREATE OR REPLACE PACKAGE BODY TEST_PKG AS
+
+  -- основная процедура
+  PROCEDURE PROCESS IS
+  BEGIN
+    -- выбираем заказ
+    SELECT COUNT(*) INTO v_cnt FROM orders WHERE id = p_id;
+
+    -- обновляем статус
+    v_status := 'DONE';
+  END PROCESS;
+
+END TEST_PKG;
+"""
+
 
 @requires_binary
 def test_subprogram_extraction_returns_both_subprograms():
@@ -261,6 +273,23 @@ def test_subprogram_source_text_preserves_cyrillic():
     proc = next(sp for sp in out.subprograms if sp.name == "PROCESS_RU")
     assert "Привет, мир" in proc.source_text
     assert "Сообщение" in proc.source_text
+
+
+@requires_binary
+def test_preceding_comments_are_returned_for_subprograms_and_substatements():
+    out = parse_object("S", "TEST_PKG", "PACKAGE BODY", _PKG_WITH_PRECEDING_COMMENTS)
+
+    proc = next(sp for sp in out.subprograms if sp.name == "PROCESS")
+    assert proc.preceding_comment == "-- основная процедура"
+
+    select_stmt = next(s for s in out.substatements if s.statement_type == "SQL_SELECT")
+    assert select_stmt.preceding_comment == "-- выбираем заказ"
+
+    other_stmt = next(
+        s for s in out.substatements
+        if s.statement_type == "OTHER" and "v_status" in s.source_text
+    )
+    assert other_stmt.preceding_comment == "-- обновляем статус"
 
 
 @requires_binary

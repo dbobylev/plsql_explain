@@ -94,3 +94,59 @@ def test_init_db_is_idempotent():
         store.init_db()
         store.init_db()  # second call must not raise
     mem.close()
+
+
+def test_init_db_migrates_preceding_comment_columns_for_existing_tables():
+    mem = sqlite3.connect(":memory:")
+    mem.row_factory = sqlite3.Row
+    mem.executescript(
+        """
+        CREATE TABLE subprogram (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            schema_name     TEXT NOT NULL,
+            object_name     TEXT NOT NULL,
+            object_type     TEXT NOT NULL,
+            subprogram_name TEXT NOT NULL,
+            subprogram_type TEXT NOT NULL,
+            start_line      INTEGER NOT NULL,
+            end_line        INTEGER NOT NULL,
+            source_text     TEXT NOT NULL,
+            source_hash     TEXT NOT NULL,
+            UNIQUE(schema_name, object_name, object_type, subprogram_name)
+        );
+
+        CREATE TABLE substatement (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            schema_name    TEXT NOT NULL,
+            object_name    TEXT NOT NULL,
+            object_type    TEXT NOT NULL,
+            subprogram     TEXT NOT NULL DEFAULT '',
+            seq            INTEGER NOT NULL,
+            parent_seq     INTEGER,
+            position       INTEGER NOT NULL,
+            statement_type TEXT NOT NULL,
+            start_line     INTEGER NOT NULL,
+            end_line       INTEGER NOT NULL,
+            source_text    TEXT NOT NULL,
+            source_hash    TEXT NOT NULL,
+            UNIQUE(schema_name, object_name, object_type, subprogram, seq)
+        );
+        """
+    )
+
+    with patch("fetcher.sqlite_store._connect", return_value=mem):
+        store.init_db()
+
+    subprogram_columns = {
+        row["name"]: row for row in mem.execute("PRAGMA table_info('subprogram')").fetchall()
+    }
+    substatement_columns = {
+        row["name"]: row for row in mem.execute("PRAGMA table_info('substatement')").fetchall()
+    }
+
+    assert "preceding_comment" in subprogram_columns
+    assert "preceding_comment" in substatement_columns
+    assert subprogram_columns["preceding_comment"]["dflt_value"] == "''"
+    assert substatement_columns["preceding_comment"]["dflt_value"] == "''"
+
+    mem.close()
