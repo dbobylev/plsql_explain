@@ -49,6 +49,9 @@ public class SubprogramInfo
 
     [JsonPropertyName("source_text")]
     public string SourceText { get; set; } = string.Empty;
+
+    [JsonPropertyName("preceding_comment")]
+    public string PrecedingComment { get; set; } = string.Empty;
 }
 
 public class SubstatementInfo
@@ -76,6 +79,9 @@ public class SubstatementInfo
 
     [JsonPropertyName("source_text")]
     public string SourceText { get; set; } = string.Empty;
+
+    [JsonPropertyName("preceding_comment")]
+    public string PrecedingComment { get; set; } = string.Empty;
 }
 
 public class ParseInput

@@ -1,4 +1,6 @@
+using System.Linq;
 using Antlr4.Runtime;
+using PlsqlParser.Grammar;
 
 namespace PlsqlParser.Parser;
 
@@ -356,5 +358,22 @@ public partial class PlsqlVisitor
         if (trimmed.StartsWith("EXECUTE IMMEDIATE", StringComparison.OrdinalIgnoreCase))
             return "SQL_EXECUTE_IMMEDIATE";
         return "OTHER";
+    }
+
+    /// <summary>
+    /// Returns the comment text (single-line or block) that immediately precedes
+    /// <paramref name="ctx"/> in the hidden token channel, trimmed of surrounding whitespace.
+    /// Returns an empty string if no comment is found.
+    /// </summary>
+    private string GetPrecedingComment(ParserRuleContext ctx)
+    {
+        var hidden = _tokens.GetHiddenTokensToLeft(ctx.Start.TokenIndex);
+        if (hidden == null) return string.Empty;
+        var text = string.Join("", hidden
+            .Where(t => t.Type == PlSqlLexer.SINGLE_LINE_COMMENT
+                     || t.Type == PlSqlLexer.MULTI_LINE_COMMENT)
+            .Select(t => t.Text))
+            .Trim();
+        return text;
     }
 }

@@ -27,6 +27,7 @@ class SubprogramInfo:
     start_line: int
     end_line: int
     source_text: str
+    preceding_comment: str = ""
 
 
 @dataclass
@@ -39,6 +40,7 @@ class SubstatementInfo:
     start_line: int
     end_line: int
     source_text: str
+    preceding_comment: str = ""
 
 
 @dataclass

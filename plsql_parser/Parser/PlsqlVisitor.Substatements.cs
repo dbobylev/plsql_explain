@@ -128,7 +128,7 @@ public partial class PlsqlVisitor
             }
             AddSubstatement(subprogram, parentSeq, ref pos, handlerHeaderText,
                 "EXCEPTION_HANDLER", handler.Start.Line, handlerHeaderEndLine,
-                out int handlerSeq);
+                out int handlerSeq, ctx: handler);
             var handlerStmts = handler.seq_of_statements();
             if (handlerStmts != null)
                 ExtractSeqStatements(handlerStmts, subprogram, handlerSeq);
@@ -176,7 +176,7 @@ public partial class PlsqlVisitor
                 ifHeaderEndLine = ifStmt.Stop?.Line ?? ifStmt.Start.Line;
             }
             AddSubstatement(subprogram, parentSeq, ref position, ifHeaderText,
-                "IF", ifStmt.Start.Line, ifHeaderEndLine, out int ifSeq);
+                "IF", ifStmt.Start.Line, ifHeaderEndLine, out int ifSeq, ctx: ifStmt);
 
             int branchPos = 0;
 
@@ -210,7 +210,7 @@ public partial class PlsqlVisitor
                     elsifHeaderEndLine = elsif.Stop?.Line ?? elsif.Start.Line;
                 }
                 AddSubstatement(subprogram, ifSeq, ref branchPos, elsifHeaderText,
-                    "IF_ELSIF", elsif.Start.Line, elsifHeaderEndLine, out int elsifSeq);
+                    "IF_ELSIF", elsif.Start.Line, elsifHeaderEndLine, out int elsifSeq, ctx: elsif);
                 var elsifStmts = elsif.seq_of_statements();
                 if (elsifStmts != null)
                     ExtractSeqStatements(elsifStmts, subprogram, elsifSeq);
@@ -238,7 +238,7 @@ public partial class PlsqlVisitor
                     elseHeaderEndLine = elsePart.Stop?.Line ?? elsePart.Start.Line;
                 }
                 AddSubstatement(subprogram, ifSeq, ref branchPos, elseHeaderText,
-                    "IF_ELSE", elsePart.Start.Line, elseHeaderEndLine, out int elseSeq);
+                    "IF_ELSE", elsePart.Start.Line, elseHeaderEndLine, out int elseSeq, ctx: elsePart);
                 var elseStmts = elsePart.seq_of_statements();
                 if (elseStmts != null)
                     ExtractSeqStatements(elseStmts, subprogram, elseSeq);
@@ -272,7 +272,7 @@ public partial class PlsqlVisitor
             }
 
             AddSubstatement(subprogram, parentSeq, ref position, headerText,
-                loopType, loopStmt.Start.Line, headerEndLine, out int loopSeq);
+                loopType, loopStmt.Start.Line, headerEndLine, out int loopSeq, ctx: loopStmt);
 
             int childPos = 0;
             var loopBody = loopStmt.seq_of_statements();
@@ -288,7 +288,7 @@ public partial class PlsqlVisitor
         if (forallStmt != null)
         {
             AddSubstatement(subprogram, parentSeq, ref position, GetSourceText(forallStmt),
-                "FORALL", forallStmt.Start.Line, forallStmt.Stop?.Line ?? forallStmt.Start.Line, out _);
+                "FORALL", forallStmt.Start.Line, forallStmt.Stop?.Line ?? forallStmt.Start.Line, out _, ctx: forallStmt);
             return;
         }
 
@@ -297,7 +297,7 @@ public partial class PlsqlVisitor
         if (caseStmt != null)
         {
             AddSubstatement(subprogram, parentSeq, ref position, GetSourceText(caseStmt),
-                "CASE", caseStmt.Start.Line, caseStmt.Stop?.Line ?? caseStmt.Start.Line, out int caseSeq);
+                "CASE", caseStmt.Start.Line, caseStmt.Stop?.Line ?? caseStmt.Start.Line, out int caseSeq, ctx: caseStmt);
             ExtractCaseChildren(caseStmt, subprogram, caseSeq);
             return;
         }
@@ -312,7 +312,7 @@ public partial class PlsqlVisitor
                 ? _sourceText.Substring(bodyStart, beginEnd - bodyStart)
                 : "begin";
             AddSubstatement(subprogram, parentSeq, ref position, beginHeaderText,
-                "BEGIN_END", body.Start.Line, body.Start.Line, out int beginSeq);
+                "BEGIN_END", body.Start.Line, body.Start.Line, out int beginSeq, ctx: body);
             int innerPos = 0;
             ExtractBodyContent(body, subprogram, beginSeq, ref innerPos);
             return;
@@ -325,13 +325,13 @@ public partial class PlsqlVisitor
             string? sqlType = DetermineSqlType(sqlStmt);
             if (sqlType != null)
                 AddSubstatement(subprogram, parentSeq, ref position, GetSourceText(sqlStmt),
-                    sqlType, sqlStmt.Start.Line, sqlStmt.Stop?.Line ?? sqlStmt.Start.Line, out _);
+                    sqlType, sqlStmt.Start.Line, sqlStmt.Stop?.Line ?? sqlStmt.Start.Line, out _, ctx: sqlStmt);
             return;
         }
 
         // All other statements (assignment, return, raise, exit, goto, etc.)
         AddSubstatement(subprogram, parentSeq, ref position, GetSourceText(ctx),
-            "OTHER", ctx.Start.Line, ctx.Stop?.Line ?? ctx.Start.Line, out _);
+            "OTHER", ctx.Start.Line, ctx.Stop?.Line ?? ctx.Start.Line, out _, ctx: ctx);
     }
 
     private static string DetermineLoopType(PlSqlParser.Loop_statementContext ctx)
@@ -365,7 +365,7 @@ public partial class PlsqlVisitor
         foreach (var when in whenParts)
         {
             AddSubstatement(subprogram, caseSeq, ref pos, GetSourceText(when),
-                "CASE_WHEN", when.Start.Line, when.Stop?.Line ?? when.Start.Line, out int whenSeq);
+                "CASE_WHEN", when.Start.Line, when.Stop?.Line ?? when.Start.Line, out int whenSeq, ctx: when);
             var stmts = when.seq_of_statements();
             if (stmts != null)
                 ExtractSeqStatements(stmts, subprogram, whenSeq);
@@ -374,7 +374,7 @@ public partial class PlsqlVisitor
         if (elsePart != null)
         {
             AddSubstatement(subprogram, caseSeq, ref pos, GetSourceText(elsePart),
-                "CASE_ELSE", elsePart.Start.Line, elsePart.Stop?.Line ?? elsePart.Start.Line, out int elseSeq);
+                "CASE_ELSE", elsePart.Start.Line, elsePart.Stop?.Line ?? elsePart.Start.Line, out int elseSeq, ctx: elsePart);
             var elseStmts = elsePart.seq_of_statements();
             if (elseStmts != null)
                 ExtractSeqStatements(elseStmts, subprogram, elseSeq);
@@ -400,6 +400,8 @@ public partial class PlsqlVisitor
     /// <summary>
     /// Assigns the next global sequence number for <paramref name="subprogram"/>,
     /// creates a <see cref="SubstatementInfo"/> record, and appends it to <see cref="Substatements"/>.
+    /// Pass <paramref name="ctx"/> for real grammar nodes so the preceding comment is extracted;
+    /// pass null for synthesised nodes (DECLARE block header, BEGIN keyword header, etc.).
     /// </summary>
     private void AddSubstatement(
         string? subprogram,
@@ -409,7 +411,8 @@ public partial class PlsqlVisitor
         string statementType,
         int startLine,
         int endLine,
-        out int seq)
+        out int seq,
+        ParserRuleContext? ctx = null)
     {
         seq = NextSeq(subprogram);
         Substatements.Add(new SubstatementInfo
@@ -422,6 +425,7 @@ public partial class PlsqlVisitor
             StartLine = startLine,
             EndLine = endLine,
             SourceText = sourceText,
+            PrecedingComment = ctx != null ? GetPrecedingComment(ctx) : string.Empty,
         });
         position++;
     }

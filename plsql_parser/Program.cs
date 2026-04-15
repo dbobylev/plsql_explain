@@ -45,6 +45,7 @@ try
     lexer.RemoveErrorListeners();
 
     var tokenStream = new CommonTokenStream(lexer);
+    tokenStream.Fill();
     var parser = new PlSqlParser(tokenStream);
     parser.RemoveErrorListeners();
 
@@ -61,7 +62,7 @@ try
         return;
     }
 
-    var visitor = new PlsqlVisitor(input.SchemaName, input.ObjectName, input.ObjectType, input.SourceText);
+    var visitor = new PlsqlVisitor(input.SchemaName, input.ObjectName, input.ObjectType, input.SourceText, tokenStream);
     visitor.Visit(tree);
 
     output.Status = "ok";
@@ -134,14 +135,15 @@ static List<SubstatementInfo> MergeAdjacentOthers(List<SubstatementInfo> input)
                 }
                 result.Add(new SubstatementInfo
                 {
-                    Subprogram    = first.Subprogram,
-                    Seq           = first.Seq,
-                    ParentSeq     = first.ParentSeq,
-                    Position      = 0,  // re-assigned below
-                    StatementType = "OTHER",
-                    StartLine     = first.StartLine,
-                    EndLine       = siblings[runEnd].EndLine,
-                    SourceText    = texts.ToString(),
+                    Subprogram       = first.Subprogram,
+                    Seq              = first.Seq,
+                    ParentSeq        = first.ParentSeq,
+                    Position         = 0,  // re-assigned below
+                    StatementType    = "OTHER",
+                    StartLine        = first.StartLine,
+                    EndLine          = siblings[runEnd].EndLine,
+                    SourceText       = texts.ToString(),
+                    PrecedingComment = first.PrecedingComment,
                 });
             }
         }

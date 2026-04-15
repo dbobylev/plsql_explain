@@ -12,6 +12,7 @@ def _node(
     title: str = "OTHER",
     children: list[DescriptionNode] | None = None,
     prompt_context: str | None = None,
+    preceding_comment: str = "",
 ) -> DescriptionNode:
     return DescriptionNode(
         node_id="test/seq:0",
@@ -24,6 +25,7 @@ def _node(
         description="",
         children=children or [],
         prompt_context=source_text if prompt_context is None else prompt_context,
+        preceding_comment=preceding_comment,
     )
 
 
@@ -135,6 +137,19 @@ def test_method_root_strategy() -> None:
     assert result is not None
     _, user = result
     assert "PROC_MAIN" in user
+
+
+def test_prompt_includes_preceding_comment() -> None:
+    node = _node(
+        statement_type="SQL_SELECT",
+        source_text="SELECT * FROM ORDERS",
+        preceding_comment="-- берем только активные заказы",
+    )
+    result = build_prompt(node)
+    assert result is not None
+    _, user = result
+    assert "Комментарий разработчика" in user
+    assert "-- берем только активные заказы" in user
 
 
 def test_description_length_hint_scales() -> None:

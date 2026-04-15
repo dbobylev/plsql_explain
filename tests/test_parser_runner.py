@@ -137,6 +137,7 @@ SUBPROGRAMS_PAYLOAD = {
             "name": "PROC1", "subprogram_type": "PROCEDURE",
             "start_line": 2, "end_line": 10,
             "source_text": "PROCEDURE PROC1 IS\nBEGIN\n  NULL;\nEND PROC1;",
+            "preceding_comment": "-- main entrypoint",
         }
     ],
     "substatements": [
@@ -144,11 +145,13 @@ SUBPROGRAMS_PAYLOAD = {
             "subprogram": "PROC1", "seq": 0, "parent_seq": None, "position": 0,
             "statement_type": "SQL_SELECT", "start_line": 5, "end_line": 5,
             "source_text": "SELECT 1 FROM dual",
+            "preceding_comment": "-- read current value",
         },
         {
             "subprogram": "PROC1", "seq": 1, "parent_seq": None, "position": 1,
             "statement_type": "IF", "start_line": 6, "end_line": 9,
             "source_text": "IF v_x > 0 THEN NULL; END IF;",
+            "preceding_comment": "-- branch on positive value",
         },
         {
             "subprogram": "PROC1", "seq": 2, "parent_seq": 1, "position": 0,
@@ -170,6 +173,7 @@ def test_parse_ok_returns_subprograms():
     assert sp.start_line == 2
     assert sp.end_line == 10
     assert "PROC1" in sp.source_text
+    assert sp.preceding_comment == "-- main entrypoint"
 
 
 def test_parse_ok_returns_substatements():
@@ -183,11 +187,13 @@ def test_parse_ok_returns_substatements():
     assert sql_stmt.seq == 0
     assert sql_stmt.parent_seq is None
     assert sql_stmt.subprogram == "PROC1"
+    assert sql_stmt.preceding_comment == "-- read current value"
 
     if_stmt = out.substatements[1]
     assert if_stmt.statement_type == "IF"
     assert if_stmt.seq == 1
     assert if_stmt.parent_seq is None
+    assert if_stmt.preceding_comment == "-- branch on positive value"
 
     if_then = out.substatements[2]
     assert if_then.statement_type == "IF_THEN"

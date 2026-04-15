@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 import subprocess
 import sys
 
@@ -17,10 +18,16 @@ class ParserError(Exception):
 
 
 def _parser_path() -> str:
-    return os.environ.get(
-        "PLSQL_PARSER_PATH",
-        "./plsql_parser/bin/Release/net8.0/PlsqlParser",
-    )
+    configured = os.environ.get("PLSQL_PARSER_PATH")
+    if configured:
+        return configured
+
+    default_path = Path("./plsql_parser/bin/Release/net8.0/PlsqlParser")
+    if sys.platform == "win32":
+        exe_path = default_path.with_suffix(".exe")
+        if exe_path.exists():
+            return str(exe_path)
+    return str(default_path)
 
 
 def _subprocess_env() -> dict:
@@ -196,6 +203,7 @@ def parse_object(
                 start_line=sp["start_line"],
                 end_line=sp["end_line"],
                 source_text=sp["source_text"],
+                preceding_comment=sp.get("preceding_comment") or "",
             )
             for sp in data.get("subprograms", [])
         ],
@@ -209,6 +217,7 @@ def parse_object(
                 start_line=s["start_line"],
                 end_line=s["end_line"],
                 source_text=s["source_text"],
+                preceding_comment=s.get("preceding_comment") or "",
             )
             for s in data.get("substatements", [])
         ],

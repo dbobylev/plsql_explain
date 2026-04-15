@@ -79,8 +79,9 @@ CREATE TABLE IF NOT EXISTS subprogram (
     subprogram_type TEXT NOT NULL,
     start_line      INTEGER NOT NULL,
     end_line        INTEGER NOT NULL,
-    source_text     TEXT NOT NULL,
-    source_hash     TEXT NOT NULL,
+    source_text       TEXT NOT NULL,
+    source_hash       TEXT NOT NULL,
+    preceding_comment TEXT NOT NULL DEFAULT '',
     UNIQUE(schema_name, object_name, object_type, subprogram_name)
 );
 
@@ -96,8 +97,9 @@ CREATE TABLE IF NOT EXISTS substatement (
     statement_type TEXT NOT NULL,
     start_line     INTEGER NOT NULL,
     end_line       INTEGER NOT NULL,
-    source_text    TEXT NOT NULL,
-    source_hash    TEXT NOT NULL,
+    source_text       TEXT NOT NULL,
+    preceding_comment TEXT NOT NULL DEFAULT '',
+    source_hash       TEXT NOT NULL,
     UNIQUE(schema_name, object_name, object_type, subprogram, seq)
 );
 

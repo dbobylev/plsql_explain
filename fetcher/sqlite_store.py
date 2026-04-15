@@ -25,6 +25,8 @@ def init_db() -> None:
         conn.executescript(schema.read_text())
         _migrate_call_edge_table(conn)
         _migrate_table_access_table(conn)
+        _migrate_subprogram_table(conn)
+        _migrate_substatement_table(conn)
         _migrate_analysis_cache_table(conn)
         _migrate_analysis_run_table(conn)
         _migrate_node_description_table(conn)
@@ -152,6 +154,26 @@ def _migrate_table_access_table(conn: sqlite3.Connection) -> None:
 
         DROP TABLE table_access__old;
         """
+    )
+
+
+def _migrate_subprogram_table(conn: sqlite3.Connection) -> None:
+    columns = _table_columns(conn, "subprogram")
+    if not columns or "preceding_comment" in columns:
+        return
+
+    conn.execute(
+        "ALTER TABLE subprogram ADD COLUMN preceding_comment TEXT NOT NULL DEFAULT ''"
+    )
+
+
+def _migrate_substatement_table(conn: sqlite3.Connection) -> None:
+    columns = _table_columns(conn, "substatement")
+    if not columns or "preceding_comment" in columns:
+        return
+
+    conn.execute(
+        "ALTER TABLE substatement ADD COLUMN preceding_comment TEXT NOT NULL DEFAULT ''"
     )
 
 
