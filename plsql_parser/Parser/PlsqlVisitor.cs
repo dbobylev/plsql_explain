@@ -60,6 +60,10 @@ public partial class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
     private string? CurrentSubprogram => _subprogramStack.Count > 0 ? _subprogramStack.Peek() : null;
     private bool IsPackageBody => string.Equals(_callerType, "PACKAGE BODY", StringComparison.OrdinalIgnoreCase);
 
+    // Maps subprogram name → set of nested method names declared directly inside it.
+    private readonly Dictionary<string, HashSet<string>> _nestedSubprogramsByParent =
+        new(StringComparer.OrdinalIgnoreCase);
+
     // Stack of current DML operation for table access tracking.
     private readonly Stack<string> _dmlStack = new();
     private string? CurrentDml => _dmlStack.Count > 0 ? _dmlStack.Peek() : null;
@@ -126,6 +130,17 @@ public partial class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
     public override object? VisitProcedure_body([NotNull] PlSqlParser.Procedure_bodyContext ctx)
     {
         var name = ctx.identifier()?.GetText()?.ToUpperInvariant();
+        var parentSubprogram = CurrentSubprogram;
+
+        // Build the nested-method set for this subprogram before visiting its children,
+        // so that call resolution inside its body can see those nested names immediately.
+        if (name != null)
+            PreScanNestedSubprograms(name, ctx.seq_of_declare_specs());
+
+        // Register this method as a nested child of its parent (if any).
+        if (parentSubprogram != null && name != null)
+            EnsureNestedSet(parentSubprogram).Add(name);
+
         _subprogramStack.Push(name);
 
         RecordSubprogram(ctx, name, "PROCEDURE");
@@ -139,6 +154,14 @@ public partial class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
     public override object? VisitFunction_body([NotNull] PlSqlParser.Function_bodyContext ctx)
     {
         var name = ctx.identifier()?.GetText()?.ToUpperInvariant();
+        var parentSubprogram = CurrentSubprogram;
+
+        if (name != null)
+            PreScanNestedSubprograms(name, ctx.seq_of_declare_specs());
+
+        if (parentSubprogram != null && name != null)
+            EnsureNestedSet(parentSubprogram).Add(name);
+
         _subprogramStack.Push(name);
 
         RecordSubprogram(ctx, name, "FUNCTION");
@@ -216,5 +239,32 @@ public partial class PlsqlVisitor : PlSqlParserBaseVisitor<object?>
         var normalizedName = name?.ToUpperInvariant();
         if (!string.IsNullOrEmpty(normalizedName))
             _topLevelPackageSubprograms.Add(normalizedName);
+    }
+
+    /// <summary>
+    /// Scans the top-level declare_spec items for nested procedure_body / function_body
+    /// declarations and adds their names into <see cref="_nestedSubprogramsByParent"/>
+    /// under <paramref name="ownerKey"/>.  Called before visiting the subprogram's children
+    /// so the names are available during call resolution inside the body.
+    /// </summary>
+    private void PreScanNestedSubprograms(string ownerKey,
+        PlSqlParser.Seq_of_declare_specsContext? declareSpecs)
+    {
+        if (declareSpecs == null) return;
+        var set = EnsureNestedSet(ownerKey);
+        foreach (var spec in declareSpecs.declare_spec())
+        {
+            var n = spec.procedure_body()?.identifier()?.GetText()?.ToUpperInvariant()
+                 ?? spec.function_body()?.identifier()?.GetText()?.ToUpperInvariant();
+            if (!string.IsNullOrEmpty(n))
+                set.Add(n);
+        }
+    }
+
+    private HashSet<string> EnsureNestedSet(string key)
+    {
+        if (!_nestedSubprogramsByParent.TryGetValue(key, out var set))
+            _nestedSubprogramsByParent[key] = set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        return set;
     }
 }

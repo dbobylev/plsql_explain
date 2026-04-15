@@ -90,6 +90,16 @@ public partial class PlsqlVisitor
 
         if (parts.Count == 1)
         {
+            // Check nested methods visible anywhere in the current scope chain
+            // (current subprogram's locals, then parent's locals, up to package level).
+            foreach (var scopeKey in _subprogramStack)
+            {
+                var key = scopeKey ?? "";
+                if (_nestedSubprogramsByParent.TryGetValue(key, out var nestedSet)
+                    && nestedSet.Contains(parts[0]))
+                    return (null, _callerObject, parts[0]);
+            }
+
             if (IsPackageBody && _topLevelPackageSubprograms.Contains(parts[0]))
                 return (null, _callerObject, parts[0]);
 

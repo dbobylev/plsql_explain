@@ -67,6 +67,8 @@ _SCOPE_LABELS = {
     "EXCEPTION_HANDLER": "Обработчик исключения",
     "DECLARE": "DECLARE-секция",
     "FORALL": "FORALL-блок",
+    "LOCAL_PROCEDURE": "Локальная процедура",
+    "LOCAL_FUNCTION": "Локальная функция",
 }
 
 

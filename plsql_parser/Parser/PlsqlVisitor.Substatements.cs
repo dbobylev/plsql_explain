@@ -46,13 +46,97 @@ public partial class PlsqlVisitor
 
         if (declareSpecs != null && outerBeginIndex >= 0)
         {
-            int declareStart = declareSpecs.Start.StartIndex;
-            string declareText = GetTrimmedSourceText(declareStart, outerBeginIndex, out int? declareEndIndex);
-            if (!string.IsNullOrWhiteSpace(declareText) && declareEndIndex != null)
+            // Check whether this method's DECLARE section contains any nested
+            // procedure_body / function_body declarations.
+            bool hasNestedMethods = false;
+            foreach (var spec in declareSpecs.declare_spec())
             {
-                int declareEndLine = GetLineNumberAtIndex(declareEndIndex.Value);
-                AddSubstatement(subprogram, null, ref pos, declareText,
-                    "DECLARE", declareSpecs.Start.Line, declareEndLine, out _);
+                if (spec.procedure_body() != null || spec.function_body() != null)
+                {
+                    hasNestedMethods = true;
+                    break;
+                }
+            }
+
+            if (!hasNestedMethods)
+            {
+                // Fast path: no nested methods — keep the original single-blob behaviour.
+                int declareStart = declareSpecs.Start.StartIndex;
+                string declareText = GetTrimmedSourceText(declareStart, outerBeginIndex, out int? declareEndIndex);
+                if (!string.IsNullOrWhiteSpace(declareText) && declareEndIndex != null)
+                {
+                    int declareEndLine = GetLineNumberAtIndex(declareEndIndex.Value);
+                    AddSubstatement(subprogram, null, ref pos, declareText,
+                        "DECLARE", declareSpecs.Start.Line, declareEndLine, out _);
+                }
+            }
+            else
+            {
+                // Iterate through declare_spec items, separating variable/type/cursor
+                // declarations from nested subprogram declarations.
+                // Non-method items are accumulated into a source range and flushed as a
+                // DECLARE substatement whenever a nested method boundary is encountered.
+                int nonMethodGroupStart = declareSpecs.Start.StartIndex;
+
+                foreach (var spec in declareSpecs.declare_spec())
+                {
+                    var procBody = spec.procedure_body();
+                    var funcBody = spec.function_body();
+
+                    if (procBody == null && funcBody == null)
+                        continue; // non-method spec — keep accumulating
+
+                    // ── Flush accumulated non-method declarations ──────────────
+                    int specStart = spec.Start.StartIndex;
+                    if (specStart > nonMethodGroupStart)
+                    {
+                        string accText = GetTrimmedSourceText(nonMethodGroupStart, specStart, out int? accEndIdx);
+                        if (!string.IsNullOrWhiteSpace(accText) && accEndIdx != null)
+                        {
+                            int accEndLine = GetLineNumberAtIndex(accEndIdx.Value);
+                            AddSubstatement(subprogram, null, ref pos, accText,
+                                "DECLARE", GetLineNumberAtIndex(nonMethodGroupStart), accEndLine, out _);
+                        }
+                    }
+
+                    // ── Emit signature-only LOCAL_PROCEDURE / LOCAL_FUNCTION ───
+                    Antlr4.Runtime.ParserRuleContext nestedBodyCtx = procBody != null
+                        ? (Antlr4.Runtime.ParserRuleContext)procBody
+                        : (Antlr4.Runtime.ParserRuleContext)funcBody!;
+                    var nestedIsToken  = procBody != null ? procBody.IS()  : funcBody!.IS();
+                    var nestedAsToken  = procBody != null ? procBody.AS()  : funcBody!.AS();
+                    var nestedDelimToken = nestedIsToken ?? nestedAsToken;
+
+                    // sigEnd is exclusive: one past the IS/AS token (or past the whole
+                    // ctx if neither token is present — shouldn't happen in valid code).
+                    int sigEnd = nestedDelimToken != null
+                        ? nestedDelimToken.Symbol.StopIndex + 1
+                        : (nestedBodyCtx.Stop?.StopIndex ?? nestedBodyCtx.Start.StartIndex) + 1;
+
+                    string sigText = GetTrimmedSourceText(nestedBodyCtx.Start.StartIndex, sigEnd, out int? sigEndIdx);
+                    if (!string.IsNullOrWhiteSpace(sigText) && sigEndIdx != null)
+                    {
+                        string methodType = procBody != null ? "LOCAL_PROCEDURE" : "LOCAL_FUNCTION";
+                        int sigEndLine = GetLineNumberAtIndex(sigEndIdx.Value);
+                        AddSubstatement(subprogram, null, ref pos, sigText.Trim(),
+                            methodType, nestedBodyCtx.Start.Line, sigEndLine, out _, ctx: spec);
+                    }
+
+                    // Advance the accumulator start past the end of this nested method body.
+                    nonMethodGroupStart = (spec.Stop?.StopIndex ?? spec.Start.StopIndex) + 1;
+                }
+
+                // ── Flush any remaining non-method declarations ────────────────
+                if (outerBeginIndex > nonMethodGroupStart)
+                {
+                    string remainText = GetTrimmedSourceText(nonMethodGroupStart, outerBeginIndex, out int? remainEndIdx);
+                    if (!string.IsNullOrWhiteSpace(remainText) && remainEndIdx != null)
+                    {
+                        int remainEndLine = GetLineNumberAtIndex(remainEndIdx.Value);
+                        AddSubstatement(subprogram, null, ref pos, remainText,
+                            "DECLARE", GetLineNumberAtIndex(nonMethodGroupStart), remainEndLine, out _);
+                    }
+                }
             }
         }
 
