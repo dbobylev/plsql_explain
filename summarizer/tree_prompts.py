@@ -4,15 +4,29 @@ from typing import Optional
 
 from summarizer.description_tree import DescriptionNode
 
-PROMPT_VERSION = "2"
+PROMPT_VERSION = "3"
 
 
 def _description_length_hint(n_children: int) -> str:
     if n_children <= 3:
         return "Опиши 1-2 предложениями."
     if n_children <= 8:
-        return "Опиши 2-3 предложениями."
-    return "Опиши 2-4 предложениями, выдели основные шаги."
+        return (
+            "Опиши 2-3 предложениями. "
+            "Обязательно упомяни конкретные таблицы и ключевые объекты."
+        )
+    if n_children <= 15:
+        return (
+            "Опиши 3-5 предложениями. "
+            "Обязательно перечисли все ключевые таблицы, условия и объекты БД."
+        )
+    # 16+ children — переходим к структурированному формату
+    return (
+        "Составь структурированное описание:\n"
+        "— Назначение: одна фраза\n"
+        "— Ключевые операции: 4-7 пунктов списком\n"
+        "— Затронутые данные: таблицы, объекты, ключевые условия"
+    )
 
 
 def _display_statement_type(statement_type: str) -> str:
@@ -183,7 +197,16 @@ def _method_root_strategy(node: DescriptionNode) -> tuple[str, str]:
     comment_block = _format_preceding_comment(node.preceding_comment)
     if node.children:
         children_text = _format_children_descriptions(node)
-        hint = _description_length_hint(len(node.children))
+        n = len(node.children)
+        if n >= 9:
+            hint = (
+                "Составь описание метода:\n"
+                "— Назначение: одна фраза о цели метода\n"
+                "— Основные шаги: 4-6 ключевых операций списком\n"
+                "— Ключевые таблицы/объекты: перечисли с краткой ролью"
+            )
+        else:
+            hint = _description_length_hint(n)
         user = (
             f"{comment_block}"
             f"Метод: {node.title}\n\n"

@@ -153,7 +153,52 @@ def test_prompt_includes_preceding_comment() -> None:
 
 
 def test_description_length_hint_scales() -> None:
+    # tier 1: ≤3 children
     assert "1-2" in _description_length_hint(1)
     assert "1-2" in _description_length_hint(3)
-    assert "2-3" in _description_length_hint(5)
-    assert "2-4" in _description_length_hint(10)
+    # tier 2: 4-8 children — must mention tables
+    hint_mid = _description_length_hint(5)
+    assert "2-3" in hint_mid
+    assert "таблицы" in hint_mid
+    # tier 3: 9-15 children — 3-5 sentences, enumerate everything
+    hint_large = _description_length_hint(10)
+    assert "3-5" in hint_large
+    assert "перечисли" in hint_large
+    # tier 4: 16+ children — structured format
+    hint_xl = _description_length_hint(16)
+    assert "Ключевые операции" in hint_xl
+    assert "Назначение" in hint_xl
+
+
+def test_method_root_large_uses_structured_hint() -> None:
+    """method_root with 9+ children должен получать структурированный hint."""
+    children = [_node() for _ in range(9)]
+    for i, c in enumerate(children):
+        c.description = f"Шаг {i + 1}"
+    node = _node(
+        node_kind="method_root",
+        title="PROC_BIG",
+        children=children,
+    )
+    result = build_prompt(node)
+    assert result is not None
+    _, user = result
+    assert "Основные шаги" in user
+    assert "Ключевые таблицы" in user
+
+
+def test_method_root_small_uses_sentence_hint() -> None:
+    """method_root с 8 дочерними узлами должен использовать обычный hint."""
+    children = [_node() for _ in range(8)]
+    for i, c in enumerate(children):
+        c.description = f"Шаг {i + 1}"
+    node = _node(
+        node_kind="method_root",
+        title="PROC_SMALL",
+        children=children,
+    )
+    result = build_prompt(node)
+    assert result is not None
+    _, user = result
+    assert "2-3" in user
+    assert "Основные шаги" not in user
