@@ -218,6 +218,36 @@ presentation-friendly иерархической таблицей для про�
 | `--force` | Игнорировать кэш описаний узлов и заново обратиться к LLM для всего дерева |
 | `--subprogram NAME` | Анализировать конкретную процедуру/функцию внутри пакета |
 
+### Шаг 5 — Подготовить документы для RAG-индексации
+
+После того как `summarize` сохранил дерево `node_description`, можно собрать
+нормализованные документы для последующей индексации в локальную таблицу
+`rag_document`.
+
+```bash
+# Экспортировать все latest completed summarize-runs по схеме
+python main.py build-rag --schema MYSCHEMA
+
+# Экспортировать только один объект
+python main.py build-rag --schema MYSCHEMA --object PKG_ORDERS
+
+# Экспортировать один конкретный метод
+python main.py build-rag --schema MYSCHEMA --object PKG_ORDERS --subprogram CALCULATE_TOTAL
+```
+
+В `rag_document` сохраняются три типа документов:
+
+1. `method_summary` — корневое описание метода
+2. `method_step` — отдельные шаги/узлы дерева (`SQL`, `CALL`, `IF`, `LOOP` и т.д.)
+3. `table_doc` — описание таблиц и колонок, найденных через `table_access`
+
+Для каждого документа сохраняются:
+
+1. `content_text` — текст для embedding/vector index
+2. `summary_text` — краткое смысловое описание
+3. `code_text` — исходный PL/SQL-фрагмент для точной подстановки в prompt
+4. `metadata_json` — связи: таблицы, вызовы, дочерние chunk'и, словарные константы
+
 #### Анализ по substatement'ам
 
 Суммаризатор работает по дереву операторов `substatement` и строит описание снизу вверх:
@@ -292,6 +322,7 @@ Oracle DBA_SOURCE
 | `subprogram` | Процедуры/функции внутри пакетов (имя, тип, исходный код) |
 | `substatement` | Дерево операторов внутри подпрограмм (IF, LOOP, SQL, EXCEPTION и т.д.) |
 | `node_description` | Дерево описаний метода: узлы, иерархия, хэши, тексты описаний LLM |
+| `rag_document` | Нормализованные документы для RAG-индексации: method summary, method steps, table docs |
 
 ### Иерархическая суммаризация
 
@@ -316,6 +347,7 @@ Oracle DBA_SOURCE
 | `dictconst/` | Загрузка значений констант из `ais.dicti` в SQLite и подмешивание их в LLM-анализ |
 | `traversal/` | Обход графа в глубину, построение дерева зависимостей |
 | `summarizer/` | LLM-описание дерева substatement: короткие запросы для leaf-узлов, агрегация снизу вверх, сохранение дерева в SQLite |
+| `rag/` | Подготовка нормализованных документов для RAG-индексации из `node_description`, `call_edge` и `table_metadata` |
 
 ## Ограничения
 

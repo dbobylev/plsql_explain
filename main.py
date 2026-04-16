@@ -226,6 +226,22 @@ def cmd_sync_dict_const(args: argparse.Namespace) -> None:
     run(schema=args.schema, object_name=args.object)
 
 
+def cmd_build_rag(args: argparse.Namespace) -> None:
+    ensure_logging_configured(getattr(args, "log_level", None))
+    if args.subprogram and not args.object:
+        raise ValueError("--subprogram requires --object")
+
+    from rag.sync import run
+
+    _logger.info(
+        "Подготовка RAG-документов: schema=%s%s%s",
+        args.schema,
+        f", object={args.object}" if args.object else "",
+        f", subprogram={args.subprogram}" if args.subprogram else "",
+    )
+    run(schema=args.schema, object_name=args.object, subprogram=args.subprogram)
+
+
 def cmd_debug(args: argparse.Namespace) -> None:
     ensure_logging_configured(getattr(args, "log_level", None))
     from dotenv import load_dotenv
@@ -306,6 +322,20 @@ def build_parser() -> argparse.ArgumentParser:
     dict_const_parser.add_argument("--schema", required=True, help="Имя схемы Oracle")
     dict_const_parser.add_argument("--object", default=None, help="Имя конкретного объекта (опционально)")
     dict_const_parser.set_defaults(func=cmd_sync_dict_const)
+
+    rag_parser = subparsers.add_parser(
+        "build-rag",
+        parents=[common_parser],
+        help="Подготовить RAG-документы для индексации",
+    )
+    rag_parser.add_argument("--schema", required=True, help="Имя схемы Oracle")
+    rag_parser.add_argument("--object", default=None, help="Имя конкретного объекта (опционально)")
+    rag_parser.add_argument(
+        "--subprogram",
+        default=None,
+        help="Имя подпрограммы внутри пакета (только вместе с --object)",
+    )
+    rag_parser.set_defaults(func=cmd_build_rag)
 
     summarize_parser = subparsers.add_parser(
         "summarize",

@@ -108,6 +108,20 @@ def test_sync_dict_const_parses_args():
     assert args.object == "PKG_A"
 
 
+def test_build_rag_parses_schema_and_optional_object():
+    args = build_parser().parse_args(["build-rag", "--schema", "S", "--object", "PKG_A"])
+    assert args.schema == "S"
+    assert args.object == "PKG_A"
+    assert args.subprogram is None
+
+
+def test_build_rag_parses_subprogram():
+    args = build_parser().parse_args(
+        ["build-rag", "--schema", "S", "--object", "PKG_A", "--subprogram", "PROC_X"]
+    )
+    assert args.subprogram == "PROC_X"
+
+
 def test_summarize_parses_required_args():
     args = build_parser().parse_args(["summarize", "--schema", "MYSCHEMA", "--object", "PKG_A"])
     assert args.schema == "MYSCHEMA"
