@@ -99,6 +99,9 @@ python main.py fetch --schema MYSCHEMA --parse
 
 # Загрузить, распарсить и подтянуть описания таблиц/колонок
 python main.py fetch --schema MYSCHEMA --parse --with-table-meta
+
+# Загрузить, распарсить и подтянуть значения словарных констант из ais.dicti
+python main.py fetch --schema MYSCHEMA --parse --with-dict-const
 ```
 
 ### Шаг 2 — Распарсить объекты (построить граф вызовов)
@@ -115,6 +118,9 @@ python main.py parse --schema MYSCHEMA --force
 
 # После парсинга синхронизировать описания таблиц и колонок
 python main.py parse --schema MYSCHEMA --with-table-meta
+
+# После парсинга синхронизировать значения словарных констант из ais.dicti
+python main.py parse --schema MYSCHEMA --with-dict-const
 ```
 
 ### Шаг 2.5 — Подтянуть метаданные таблиц
@@ -125,6 +131,25 @@ python main.py parse --schema MYSCHEMA --with-table-meta
 python main.py sync-table-meta --schema MYSCHEMA
 python main.py sync-table-meta --schema MYSCHEMA --object PKG_ORDERS
 ```
+
+### Шаг 2.6 — Подтянуть значения словарных констант
+
+Если в исходниках встречаются вызовы `c.get('CONST_NAME')`, их значения можно синхронизировать из `ais.dicti` отдельной командой:
+
+```bash
+python main.py sync-dict-const --schema MYSCHEMA
+python main.py sync-dict-const --schema MYSCHEMA --object PKG_ORDERS
+```
+
+По каждой найденной константе выполняется запрос:
+
+```sql
+select shortname, fullname
+from ais.dicti
+where constname = upper(:ConstName);
+```
+
+Результаты сохраняются в локальную SQLite-таблицу `dict_constant`.
 
 ### Debug — запустить парсер на произвольном PL/SQL
 
@@ -173,6 +198,10 @@ python main.py summarize --schema MYSCHEMA --object PKG_ORDERS --depth 2
 python main.py summarize --schema MYSCHEMA --object PKG_ORDERS --force
 ```
 
+`summarize` сам не загружает значения из `ais.dicti` и не заполняет `dict_constant`.
+Он только читает уже синхронизированные значения из SQLite и добавляет их в prompt для LLM.
+Если `dict_constant` пустая, сначала выполните `parse --with-dict-const` или `sync-dict-const`.
+
 Результат автоматически сохраняется в Markdown-файл в папку `rusult_summary/`.
 Файл содержит обзор (`Overview`) со статистикой по дереву и `Numbered Outline`
 с ручными переносами длинных описаний.
@@ -212,6 +241,19 @@ presentation-friendly иерархической таблицей для про�
 В prompt для LLM описание таблицы передаётся всегда, если метаданные найдены.
 Колонки передаются выборочно: только если их имена найдены в текущем фрагменте исходника. Это снижает шум и не перегружает контекст.
 
+#### Словарные константы `c.get(...)`
+
+После `parse --with-dict-const` или `sync-dict-const` в SQLite сохраняются:
+
+1. Имя константы `const_name`
+2. Значение `shortname`
+3. Значение `fullname`
+4. Поле `resolved_text` для анализа: `fullname`, а если оно пустое, то `shortname`
+
+При суммаризации проект ищет в текущем фрагменте вызовы вида `c.get('CONST_NAME')`,
+поднимает для них значения из `dict_constant` и добавляет в prompt отдельный блок
+`Константы словаря`.
+
 ## License
 
 Проект распространяется под лицензией Apache License 2.0. Подробности в файлах `LICENSE` и `NOTICE`.
@@ -229,6 +271,8 @@ Oracle DBA_SOURCE
        ↓
   [2.5] sync-table-meta — описания таблиц/колонок из Oracle → SQLite
        ↓
+  [2.6] sync-dict-const — значения констант из ais.dicti → SQLite
+       ↓
   [3] explain      — обход графа в глубину, дерево зависимостей
        ↓
   [4] summarize    — иерархическая LLM-суммаризация снизу вверх
@@ -244,6 +288,7 @@ Oracle DBA_SOURCE
 | `table_access` | Обращения к таблицам (SELECT/INSERT/UPDATE/DELETE/MERGE) |
 | `table_metadata` | Описание таблиц/view, найденных в `table_access` |
 | `column_metadata` | Колонки, типы и комментарии для таблиц/view |
+| `dict_constant` | Кэш значений констант из `ais.dicti` для вызовов `c.get(...)` |
 | `subprogram` | Процедуры/функции внутри пакетов (имя, тип, исходный код) |
 | `substatement` | Дерево операторов внутри подпрограмм (IF, LOOP, SQL, EXCEPTION и т.д.) |
 | `node_description` | Дерево описаний метода: узлы, иерархия, хэши, тексты описаний LLM |
@@ -268,6 +313,7 @@ Oracle DBA_SOURCE
 | `parser/` | Python-обёртка над C#-бинарником (subprocess + JSON) |
 | `indexer/` | Инкрементальное обновление графа в SQLite по хэшу |
 | `tablemeta/` | Загрузка описаний таблиц и колонок из Oracle в SQLite |
+| `dictconst/` | Загрузка значений констант из `ais.dicti` в SQLite и подмешивание их в LLM-анализ |
 | `traversal/` | Обход графа в глубину, построение дерева зависимостей |
 | `summarizer/` | LLM-описание дерева substatement: короткие запросы для leaf-узлов, агрегация снизу вверх, сохранение дерева в SQLite |
 
