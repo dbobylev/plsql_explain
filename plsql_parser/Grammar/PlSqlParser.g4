@@ -6934,7 +6934,7 @@ numeric_function_wrapper
 numeric_function
     : SUM '(' (DISTINCT | ALL)? expression ')' keep_clause? over_clause?
     | COUNT '(' (ASTERISK | ((DISTINCT | UNIQUE | ALL)? concatenation)?) ')' keep_clause? over_clause?
-    | ROUND '(' expression (',' UNSIGNED_INTEGER)? ')'
+    | ROUND '(' expression (',' expression)? ')'
     | AVG '(' (DISTINCT | ALL)? expression ')' keep_clause? over_clause?
     | MIN '(' (DISTINCT | ALL)? expression ')' keep_clause? over_clause?
     | MAX '(' (DISTINCT | ALL)? expression ')' keep_clause? over_clause?
