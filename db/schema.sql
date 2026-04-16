@@ -70,6 +70,16 @@ CREATE TABLE IF NOT EXISTS column_metadata (
     UNIQUE(schema_name, table_name, column_name)
 );
 
+CREATE TABLE IF NOT EXISTS dict_constant (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    const_name    TEXT NOT NULL,
+    shortname     TEXT,
+    fullname      TEXT,
+    resolved_text TEXT,
+    refreshed_at  TEXT NOT NULL,
+    UNIQUE(const_name)
+);
+
 CREATE TABLE IF NOT EXISTS subprogram (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     schema_name     TEXT NOT NULL,

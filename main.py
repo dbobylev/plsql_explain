@@ -179,6 +179,7 @@ def cmd_fetch(args: argparse.Namespace) -> None:
             schema=args.schema,
             object_name=args.object,
             with_table_meta=args.with_table_meta,
+            with_dict_const=args.with_dict_const,
         )
 
 
@@ -197,6 +198,7 @@ def cmd_parse(args: argparse.Namespace) -> None:
         object_name=args.object,
         force=args.force,
         with_table_meta=args.with_table_meta,
+        with_dict_const=args.with_dict_const,
     )
 
 
@@ -206,6 +208,18 @@ def cmd_sync_table_meta(args: argparse.Namespace) -> None:
 
     _logger.info(
         "Синхронизация метаданных таблиц: schema=%s%s",
+        args.schema,
+        f", object={args.object}" if args.object else "",
+    )
+    run(schema=args.schema, object_name=args.object)
+
+
+def cmd_sync_dict_const(args: argparse.Namespace) -> None:
+    ensure_logging_configured(getattr(args, "log_level", None))
+    from dictconst.sync import run
+
+    _logger.info(
+        "Синхронизация словарных констант: schema=%s%s",
         args.schema,
         f", object={args.object}" if args.object else "",
     )
@@ -248,6 +262,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="После парсинга синхронизировать описания таблиц и колонок",
     )
+    fetch_parser.add_argument(
+        "--with-dict-const",
+        action="store_true",
+        help="После парсинга синхронизировать значения констант из ais.dicti",
+    )
     fetch_parser.set_defaults(func=cmd_fetch)
 
     parse_parser = subparsers.add_parser(
@@ -263,6 +282,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="После парсинга синхронизировать описания таблиц и колонок",
     )
+    parse_parser.add_argument(
+        "--with-dict-const",
+        action="store_true",
+        help="После парсинга синхронизировать значения констант из ais.dicti",
+    )
     parse_parser.set_defaults(func=cmd_parse)
 
     table_meta_parser = subparsers.add_parser(
@@ -273,6 +297,15 @@ def build_parser() -> argparse.ArgumentParser:
     table_meta_parser.add_argument("--schema", required=True, help="Имя схемы Oracle")
     table_meta_parser.add_argument("--object", default=None, help="Имя конкретного объекта (опционально)")
     table_meta_parser.set_defaults(func=cmd_sync_table_meta)
+
+    dict_const_parser = subparsers.add_parser(
+        "sync-dict-const",
+        parents=[common_parser],
+        help="Загрузить значения констант из ais.dicti для найденных вызовов c.get(...)",
+    )
+    dict_const_parser.add_argument("--schema", required=True, help="Имя схемы Oracle")
+    dict_const_parser.add_argument("--object", default=None, help="Имя конкретного объекта (опционально)")
+    dict_const_parser.set_defaults(func=cmd_sync_dict_const)
 
     summarize_parser = subparsers.add_parser(
         "summarize",

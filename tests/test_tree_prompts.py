@@ -1,6 +1,7 @@
 """Tests for summarizer.tree_prompts — adaptive prompt building."""
 from __future__ import annotations
 
+from dictconst.models import DictConstantUsage
 from summarizer.description_tree import DescriptionNode
 from summarizer.tree_prompts import build_prompt, _description_length_hint
 
@@ -13,6 +14,7 @@ def _node(
     children: list[DescriptionNode] | None = None,
     prompt_context: str | None = None,
     preceding_comment: str = "",
+    dict_constants: list[DictConstantUsage] | None = None,
 ) -> DescriptionNode:
     return DescriptionNode(
         node_id="test/seq:0",
@@ -26,6 +28,7 @@ def _node(
         children=children or [],
         prompt_context=source_text if prompt_context is None else prompt_context,
         preceding_comment=preceding_comment,
+        dict_constants=dict_constants or [],
     )
 
 
@@ -150,6 +153,27 @@ def test_prompt_includes_preceding_comment() -> None:
     _, user = result
     assert "Комментарий разработчика" in user
     assert "-- берем только активные заказы" in user
+
+
+def test_prompt_includes_dict_constants() -> None:
+    node = _node(
+        statement_type="SQL_SELECT",
+        source_text="SELECT * FROM ORDERS WHERE status = c.get('PAY_STATE_DONE')",
+        dict_constants=[
+            DictConstantUsage(
+                const_name="PAY_STATE_DONE",
+                shortname="DONE",
+                fullname="Оплачен",
+                resolved_text="Оплачен",
+            )
+        ],
+    )
+    result = build_prompt(node)
+    assert result is not None
+    _, user = result
+    assert "Константы словаря" in user
+    assert "c.get('PAY_STATE_DONE')" in user
+    assert "fullname='Оплачен'" in user
 
 
 def test_description_length_hint_scales() -> None:

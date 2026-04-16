@@ -38,6 +38,11 @@ def test_fetch_with_table_meta_flag():
     assert args.with_table_meta is True
 
 
+def test_fetch_with_dict_const_flag():
+    args = build_parser().parse_args(["fetch", "--schema", "S", "--parse", "--with-dict-const"])
+    assert args.with_dict_const is True
+
+
 def test_parse_command_schema():
     args = build_parser().parse_args(["parse", "--schema", "MYSCHEMA"])
     assert args.schema == "MYSCHEMA"
@@ -55,6 +60,11 @@ def test_parse_command_with_object_and_force():
 def test_parse_command_with_table_meta():
     args = build_parser().parse_args(["parse", "--schema", "S", "--with-table-meta"])
     assert args.with_table_meta is True
+
+
+def test_parse_command_with_dict_const():
+    args = build_parser().parse_args(["parse", "--schema", "S", "--with-dict-const"])
+    assert args.with_dict_const is True
 
 
 def test_parse_command_missing_schema_raises():
@@ -88,6 +98,12 @@ def test_explain_missing_object_raises():
 
 def test_sync_table_meta_parses_args():
     args = build_parser().parse_args(["sync-table-meta", "--schema", "S", "--object", "PKG_A"])
+    assert args.schema == "S"
+    assert args.object == "PKG_A"
+
+
+def test_sync_dict_const_parses_args():
+    args = build_parser().parse_args(["sync-dict-const", "--schema", "S", "--object", "PKG_A"])
     assert args.schema == "S"
     assert args.object == "PKG_A"
 

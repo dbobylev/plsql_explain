@@ -21,6 +21,7 @@ def run(
     object_name: str | None = None,
     force: bool = False,
     with_table_meta: bool = False,
+    with_dict_const: bool = False,
 ) -> None:
     ensure_logging_configured()
     fetcher_store.init_db()
@@ -94,3 +95,10 @@ def run(
         _logger.info("")
         _logger.info("Синхронизация метаданных таблиц...")
         sync_table_meta_run(schema=schema, object_name=object_name)
+
+    if with_dict_const:
+        from dictconst.sync import run as sync_dict_const_run
+
+        _logger.info("")
+        _logger.info("Синхронизация словарных констант...")
+        sync_dict_const_run(schema=schema, object_name=object_name)

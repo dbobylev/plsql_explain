@@ -7,6 +7,8 @@ import sqlite3
 from dataclasses import dataclass, field
 from typing import Optional
 
+from dictconst.models import DictConstantUsage
+from dictconst.sqlite_store import load_constant_usages
 from summarizer.substatements import (
     SubstatementNode,
     load_substatement_tree,
@@ -38,6 +40,7 @@ class DescriptionNode:
     analysis_run_id: str = ""
     preceding_comment: str = ""
     table_accesses: list[TableAccessInfo] = field(default_factory=list)
+    dict_constants: list[DictConstantUsage] = field(default_factory=list)
 
 
 def _node_prefix(schema: str, obj: str, sub: Optional[str]) -> str:
@@ -188,6 +191,7 @@ def _find_callees_in_source(
 
 
 def _substatement_to_desc_node(
+    conn: sqlite3.Connection,
     node: SubstatementNode,
     prefix: str,
     schema_name: str,
@@ -198,15 +202,16 @@ def _substatement_to_desc_node(
     """Convert a SubstatementNode to a DescriptionNode (without call expansion)."""
     rendered = render_substatement(node)
     children = [
-        _substatement_to_desc_node(child, prefix, schema_name, object_name, subprogram, table_accesses)
+        _substatement_to_desc_node(conn, child, prefix, schema_name, object_name, subprogram, table_accesses)
         for child in node.children
     ]
+    lookup_text = _build_constant_lookup_text(rendered, _substatement_prompt_context(node, rendered))
     return DescriptionNode(
         node_id=f"{prefix}/seq:{node.seq}",
         node_kind="statement",
         statement_type=node.statement_type,
         title=node.statement_type,
-        source_text=node.source_text,
+        source_text=rendered,
         start_line=node.start_line,
         end_line=node.end_line,
         description="",
@@ -218,6 +223,7 @@ def _substatement_to_desc_node(
         prompt_context=_substatement_prompt_context(node, rendered),
         preceding_comment=node.preceding_comment,
         table_accesses=list(table_accesses),
+        dict_constants=load_constant_usages(conn, lookup_text),
     )
 
 
@@ -286,6 +292,7 @@ def _clone_with_rebased_ids(
         prompt_context=node.prompt_context,
         preceding_comment=node.preceding_comment,
         table_accesses=node.table_accesses,
+        dict_constants=node.dict_constants,
     )
 
 
@@ -360,11 +367,12 @@ def build_description_tree(
             source_hash=source_hash or "",
             preceding_comment=sub_comment,
             table_accesses=dep_node.table_accesses,
+            dict_constants=load_constant_usages(conn, source_text or ""),
         )
 
     # Convert substatement tree to description nodes
     desc_children = [
-        _substatement_to_desc_node(root, prefix, schema, obj_name, sub, dep_node.table_accesses)
+        _substatement_to_desc_node(conn, root, prefix, schema, obj_name, sub, dep_node.table_accesses)
         for root in roots
     ]
 
@@ -393,6 +401,7 @@ def build_description_tree(
         source_hash=source_hash,
         preceding_comment=sub_comment,
         table_accesses=dep_node.table_accesses,
+        dict_constants=[],
     )
 
     # Compute tree hashes bottom-up
@@ -574,6 +583,12 @@ def _substatement_prompt_context(node: SubstatementNode, rendered: str) -> str:
         return "ELSE"
 
     return source or statement_type
+
+
+def _build_constant_lookup_text(source_text: str, prompt_context: str) -> str:
+    if prompt_context and prompt_context != source_text:
+        return f"{source_text}\n{prompt_context}"
+    return source_text
 
 
 def _extract_prefix_through_keyword(text: str, keyword: str) -> str:

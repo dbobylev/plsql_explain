@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Optional
 
+from dictconst.models import DictConstantUsage
 from summarizer.description_tree import DescriptionNode
 from traversal.models import TableAccessInfo
 
-PROMPT_VERSION = "3"
+PROMPT_VERSION = "4"
 
 
 def _description_length_hint(n_children: int) -> str:
@@ -59,6 +60,25 @@ def _format_preceding_comment(comment: str) -> str:
     return f"Комментарий разработчика:\n```\n{stripped}\n```\n\n"
 
 
+def _format_dict_constants(dict_constants: list[DictConstantUsage]) -> str:
+    if not dict_constants:
+        return ""
+
+    lines = []
+    for usage in dict_constants:
+        parts = [f"c.get('{usage.const_name}')"]
+        if usage.shortname:
+            parts.append(f"shortname='{usage.shortname}'")
+        if usage.fullname:
+            parts.append(f"fullname='{usage.fullname}'")
+        if usage.resolved_text and usage.resolved_text not in {usage.shortname, usage.fullname}:
+            parts.append(f"resolved='{usage.resolved_text}'")
+        if len(parts) == 1:
+            parts.append("значение не найдено в ais.dicti")
+        lines.append("  - " + " -> ".join([parts[0], ", ".join(parts[1:])]))
+    return "Константы словаря:\n" + "\n".join(lines) + "\n\n"
+
+
 # ---------------------------------------------------------------------------
 # Table metadata formatting
 # ---------------------------------------------------------------------------
@@ -99,6 +119,7 @@ def _sql_strategy(node: DescriptionNode) -> tuple[str, str]:
         "Опиши SQL-операцию кратко и точно на русском языке."
     )
     comment_block = _format_preceding_comment(node.preceding_comment)
+    const_block = _format_dict_constants(node.dict_constants)
     if node.children:
         children_text = _format_children_descriptions(node)
         hint = _description_length_hint(len(node.children))
@@ -106,6 +127,7 @@ def _sql_strategy(node: DescriptionNode) -> tuple[str, str]:
         meta_block = _format_table_metadata(node.table_accesses, node.prompt_context)
         user = (
             f"{comment_block}"
+            f"{const_block}"
             f"Операция: {operation}\n"
             f"{context}"
             f"{meta_block}"
@@ -117,6 +139,7 @@ def _sql_strategy(node: DescriptionNode) -> tuple[str, str]:
         meta_block = _format_table_metadata(node.table_accesses, node.source_text)
         user = (
             f"{comment_block}"
+            f"{const_block}"
             f"Операция: {operation}\n"
             f"Код:\n```\n{node.source_text}\n```\n\n"
             f"{meta_block}"
@@ -132,12 +155,14 @@ def _branching_strategy(node: DescriptionNode) -> tuple[str, str]:
         "Опиши условную логику кратко и точно на русском языке."
     )
     comment_block = _format_preceding_comment(node.preceding_comment)
+    const_block = _format_dict_constants(node.dict_constants)
     if node.children:
         children_text = _format_children_descriptions(node)
         hint = _description_length_hint(len(node.children))
         context = _format_prompt_context("Условие/заголовок", node.prompt_context)
         user = (
             f"{comment_block}"
+            f"{const_block}"
             f"Конструкция: {node.statement_type}\n"
             f"{context}"
             f"Ветви:\n{children_text}\n\n"
@@ -146,6 +171,7 @@ def _branching_strategy(node: DescriptionNode) -> tuple[str, str]:
     else:
         user = (
             f"{comment_block}"
+            f"{const_block}"
             f"Конструкция: {node.statement_type}\n"
             f"Код:\n```\n{node.source_text}\n```\n\n"
             f"Опиши логику ветвления и её назначение.\nОпиши 1-2 предложениями."
@@ -159,12 +185,14 @@ def _loop_strategy(node: DescriptionNode) -> tuple[str, str]:
         "Опиши цикл кратко и точно на русском языке."
     )
     comment_block = _format_preceding_comment(node.preceding_comment)
+    const_block = _format_dict_constants(node.dict_constants)
     if node.children:
         children_text = _format_children_descriptions(node)
         hint = _description_length_hint(len(node.children))
         context = _format_prompt_context("Заголовок", node.prompt_context)
         user = (
             f"{comment_block}"
+            f"{const_block}"
             f"Цикл: {node.statement_type}\n"
             f"{context}"
             f"Тело цикла:\n{children_text}\n\n"
@@ -173,6 +201,7 @@ def _loop_strategy(node: DescriptionNode) -> tuple[str, str]:
     else:
         user = (
             f"{comment_block}"
+            f"{const_block}"
             f"Цикл: {node.statement_type}\n"
             f"Код:\n```\n{node.source_text}\n```\n\n"
             f"Опиши что итерируется и зачем.\nОпиши 1-2 предложениями."
@@ -186,12 +215,14 @@ def _exception_strategy(node: DescriptionNode) -> tuple[str, str]:
         "Опиши обработку исключений кратко и точно на русском языке."
     )
     comment_block = _format_preceding_comment(node.preceding_comment)
+    const_block = _format_dict_constants(node.dict_constants)
     if node.children:
         children_text = _format_children_descriptions(node)
         hint = _description_length_hint(len(node.children))
         context = _format_prompt_context("Локальный фрагмент", node.prompt_context)
         user = (
             f"{comment_block}"
+            f"{const_block}"
             f"Обработчик исключений:\n"
             f"{context}"
             f"Содержимое:\n{children_text}\n\n"
@@ -200,6 +231,7 @@ def _exception_strategy(node: DescriptionNode) -> tuple[str, str]:
     else:
         user = (
             f"{comment_block}"
+            f"{const_block}"
             f"Обработчик исключений:\n"
             f"Код:\n```\n{node.source_text}\n```\n\n"
             f"Какие исключения перехватываются и как обрабатываются?\nОпиши 1-2 предложениями."
@@ -229,6 +261,7 @@ def _method_root_strategy(node: DescriptionNode) -> tuple[str, str]:
         "Опиши метод кратко и точно на русском языке."
     )
     comment_block = _format_preceding_comment(node.preceding_comment)
+    const_block = _format_dict_constants(node.dict_constants)
     if node.children:
         children_text = _format_children_descriptions(node)
         n = len(node.children)
@@ -243,6 +276,7 @@ def _method_root_strategy(node: DescriptionNode) -> tuple[str, str]:
             hint = _description_length_hint(n)
         user = (
             f"{comment_block}"
+            f"{const_block}"
             f"Метод: {node.title}\n\n"
             f"Шаги метода:\n{children_text}\n\n"
             f"Опиши назначение метода.\n{hint}"
@@ -250,6 +284,7 @@ def _method_root_strategy(node: DescriptionNode) -> tuple[str, str]:
     else:
         user = (
             f"{comment_block}"
+            f"{const_block}"
             f"Метод: {node.title}\n"
             f"Код:\n```\n{node.source_text}\n```\n\n"
             f"Опиши назначение метода.\nОпиши 1-2 предложениями."
@@ -263,12 +298,14 @@ def _default_strategy(node: DescriptionNode) -> tuple[str, str]:
         "Опиши фрагмент кратко и точно на русском языке."
     )
     comment_block = _format_preceding_comment(node.preceding_comment)
+    const_block = _format_dict_constants(node.dict_constants)
     if node.children:
         children_text = _format_children_descriptions(node)
         hint = _description_length_hint(len(node.children))
         context = _format_prompt_context("Локальный фрагмент", node.prompt_context)
         user = (
             f"{comment_block}"
+            f"{const_block}"
             f"Тип: {node.statement_type}\n"
             f"{context}"
             f"Содержимое:\n{children_text}\n\n"
@@ -277,6 +314,7 @@ def _default_strategy(node: DescriptionNode) -> tuple[str, str]:
     else:
         user = (
             f"{comment_block}"
+            f"{const_block}"
             f"Тип: {node.statement_type}\n"
             f"Код:\n```\n{node.source_text}\n```\n\n"
             f"Опиши кратко.\nОпиши 1-2 предложениями."

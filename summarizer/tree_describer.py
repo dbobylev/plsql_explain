@@ -585,6 +585,7 @@ def _make_summary_ref(node: DescriptionNode) -> DescriptionNode:
         subprogram=node.subprogram,
         source_hash=node.source_hash,
         analysis_run_id=node.analysis_run_id,
+        dict_constants=node.dict_constants,
     )
 
 
@@ -643,6 +644,7 @@ def _release_prompt_payload(node: DescriptionNode) -> None:
     # prompt payload reduces peak memory while keeping the tree shape intact.
     node.source_text = ""
     node.prompt_context = ""
+    node.dict_constants = []
 
 
 def _compact_processed_subtree(node: DescriptionNode) -> None:

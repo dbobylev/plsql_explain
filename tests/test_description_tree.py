@@ -354,3 +354,25 @@ def test_tree_hash_computed(mem_conn: sqlite3.Connection) -> None:
 
     assert tree.source_hash
     assert tree.children[0].source_hash
+
+
+def test_build_tree_loads_dict_constants_for_statement(mem_conn: sqlite3.Connection) -> None:
+    _insert_source(mem_conn, "PKG_A")
+    _insert_substatement(mem_conn, "S", "PKG_A", "PACKAGE BODY", "",
+                         seq=0, parent_seq=None, position=0,
+                         statement_type="OTHER", source_text="v_x := c.get('foo');")
+    mem_conn.execute(
+        """
+        INSERT INTO dict_constant (const_name, shortname, fullname, resolved_text, refreshed_at)
+        VALUES ('FOO', 'DONE', 'Готово', 'Готово', datetime('now'))
+        """
+    )
+    mem_conn.commit()
+
+    dep = _ok_node("PKG_A")
+    tree = build_description_tree(mem_conn, dep, expand_calls=False)
+
+    assert len(tree.children[0].dict_constants) == 1
+    usage = tree.children[0].dict_constants[0]
+    assert usage.const_name == "FOO"
+    assert usage.fullname == "Готово"
