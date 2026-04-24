@@ -56,7 +56,7 @@ def run_index(
     uploaded = 0
     for start in range(0, len(rows), batch_size):
         batch = rows[start:start + batch_size]
-        vectors = embedder.embed_texts([row["content_text"] for row in batch])
+        vectors = embedder.embed_texts([_build_embedding_text(row) for row in batch])
         points = [
             {
                 "id": _point_id(row["chunk_id"]),
@@ -142,6 +142,15 @@ def _point_id(chunk_id: str) -> int:
     digest = hashlib.sha256(chunk_id.encode("utf-8")).digest()
     value = int.from_bytes(digest[:8], "big") & ((1 << 63) - 1)
     return value or 1
+
+
+def _build_embedding_text(row: Any) -> str:
+    content_text = row["content_text"] or ""
+    lines = content_text.splitlines()
+    for idx, line in enumerate(lines):
+        if line.strip() == "Код:":
+            return "\n".join(lines[:idx]).strip()
+    return content_text
 
 
 def _build_payload(row: Any) -> dict[str, Any]:

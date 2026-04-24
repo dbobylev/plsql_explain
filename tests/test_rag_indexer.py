@@ -82,6 +82,10 @@ def test_run_index_uploads_documents_to_qdrant(mem_conn) -> None:
     assert uploaded == 2
     qdrant.create_collection.assert_called_once_with("plsql_rag", vector_size=1536, distance="Cosine")
     embedder.embed_texts.assert_called_once()
+    assert embedder.embed_texts.call_args.args[0] == [
+        "Метод: S.PKG_A.PROC_MAIN\nНазначение: Обрабатывает заказ.",
+        "Метод: S.PKG_A.PROC_MAIN\nШаг: SQL_SELECT\nСмысл: Читает заказ.",
+    ]
     qdrant.upsert_points.assert_called_once()
     points = qdrant.upsert_points.call_args.args[1]
     assert points[0]["payload"]["chunk_id"] == "method:S.PKG_A.PROC_MAIN:root"
@@ -89,6 +93,53 @@ def test_run_index_uploads_documents_to_qdrant(mem_conn) -> None:
     assert points[0]["payload"]["summary_text"] == "Обрабатывает заказ."
     assert points[0]["payload"]["metadata"] == {"method_ref": "S.PKG_A.PROC_MAIN"}
     assert isinstance(points[0]["id"], int)
+
+
+def test_run_index_excludes_code_section_from_embedding_text(mem_conn) -> None:
+    _insert_rag_document(
+        mem_conn,
+        chunk_id="method:S.PKG_A.PROC_MAIN:step1",
+        chunk_type="method_step",
+        title="SQL_SELECT",
+        summary_text="Читает заказ.",
+        content_text=(
+            "Метод: S.PKG_A.PROC_MAIN\n"
+            "Шаг: SQL_SELECT\n"
+            "Смысл: Читает заказ.\n"
+            "Связанные таблицы: S.ORDERS\n"
+            "Код:\n"
+            "SELECT *\n"
+            "  INTO v_order\n"
+            "  FROM orders;"
+        ),
+    )
+    mem_conn.commit()
+
+    embedder = Mock()
+    embedder.embed_texts.return_value = [[0.1, 0.2]]
+    qdrant = Mock()
+    qdrant.get_collection.return_value = None
+
+    with patch("fetcher.sqlite_store.init_db"), \
+         patch("fetcher.sqlite_store._connect", return_value=mem_conn), \
+         patch("rag.indexer.EmbeddingClient", return_value=embedder), \
+         patch("rag.indexer.QdrantClient", return_value=qdrant):
+        uploaded = indexer.run_index(
+            collection="plsql_rag",
+            schema="S",
+            object_name="PKG_A",
+            subprogram="PROC_MAIN",
+            batch_size=1,
+            vector_size=1536,
+        )
+
+    assert uploaded == 1
+    assert embedder.embed_texts.call_args.args[0] == [
+        "Метод: S.PKG_A.PROC_MAIN\n"
+        "Шаг: SQL_SELECT\n"
+        "Смысл: Читает заказ.\n"
+        "Связанные таблицы: S.ORDERS"
+    ]
 
 
 def test_run_search_builds_query_filter_and_returns_hits() -> None:
