@@ -289,7 +289,7 @@ python main.py build-rag --schema MYSCHEMA --object PKG_ORDERS --subprogram CALC
 После того как `build-rag` заполнил таблицу `rag_document`, документы можно
 загрузить в Qdrant через HTTP API, без `qdrantclient`.
 
-Нужны переменные окружения:
+Добавьте в `.env`:
 
 1. `EMBEDDING_BASE_URL` — OpenAI-compatible endpoint для embeddings
 2. `EMBEDDING_API_KEY` — ключ для embeddings endpoint

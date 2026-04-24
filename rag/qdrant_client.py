@@ -1,20 +1,19 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 from urllib import error, request
+
+from rag.config import load_rag_config
 
 
 class QdrantClient:
     """Minimal Qdrant HTTP client without external SDK dependency."""
 
     def __init__(self) -> None:
-        url = os.environ.get("QDRANT_URL")
-        if not url:
-            raise ValueError("QDRANT_URL is required")
-        self._base_url = url.rstrip("/")
-        self._api_key = os.environ.get("QDRANT_API_KEY", "")
+        config = load_rag_config()
+        self._base_url = config.qdrant_url.rstrip("/")
+        self._api_key = config.qdrant_api_key
 
     def get_collection(self, name: str) -> dict[str, Any] | None:
         try:

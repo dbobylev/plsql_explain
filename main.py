@@ -247,8 +247,6 @@ def cmd_index_rag(args: argparse.Namespace) -> None:
     if args.subprogram and not args.object:
         raise ValueError("--subprogram requires --object")
 
-    from dotenv import load_dotenv
-    load_dotenv()
     from rag.indexer import run_index
 
     _logger.info(
@@ -276,8 +274,6 @@ def cmd_search_rag(args: argparse.Namespace) -> None:
     if args.subprogram and not args.object:
         raise ValueError("--subprogram requires --object")
 
-    from dotenv import load_dotenv
-    load_dotenv()
     from rag.indexer import run_search
 
     _logger.info(
