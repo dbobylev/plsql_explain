@@ -284,6 +284,64 @@ python main.py build-rag --schema MYSCHEMA --object PKG_ORDERS --subprogram CALC
 поднимает для них значения из `dict_constant` и добавляет в prompt отдельный блок
 `Константы словаря`.
 
+### Шаг 6 — Загрузить RAG-документы в Qdrant
+
+После того как `build-rag` заполнил таблицу `rag_document`, документы можно
+загрузить в Qdrant через HTTP API, без `qdrantclient`.
+
+Нужны переменные окружения:
+
+1. `EMBEDDING_BASE_URL` — OpenAI-compatible endpoint для embeddings
+2. `EMBEDDING_API_KEY` — ключ для embeddings endpoint
+3. `EMBEDDING_MODEL` — имя embedding-модели
+4. `QDRANT_URL` — базовый URL Qdrant
+5. `QDRANT_API_KEY` — ключ Qdrant, если требуется
+
+Примеры:
+
+```bash
+# Загрузить все документы по схеме в указанную collection.
+# Если collection не существует, она будет создана с заданной размерностью.
+python main.py index-rag --collection plsql_rag --schema MYSCHEMA --vector-size 1536
+
+# Загрузить только method_summary и method_step для одного метода
+python main.py index-rag \
+  --collection plsql_rag \
+  --schema MYSCHEMA \
+  --object PKG_ORDERS \
+  --subprogram CALCULATE_TOTAL \
+  --chunk-type method_summary \
+  --chunk-type method_step \
+  --vector-size 1536
+```
+
+`index-rag` берёт текст для embedding из `rag_document.content_text`, а в payload
+Qdrant кладёт `chunk_id`, `chunk_type`, `schema_name`, `object_name`,
+`subprogram`, `title`, `summary_text` и технические metadata для обратной
+связки с SQLite.
+
+### Шаг 7 — Проверить поиск по Qdrant
+
+После загрузки можно сделать тестовый vector search:
+
+```bash
+python main.py search-rag \
+  --collection plsql_rag \
+  --query "Где рассчитывается сумма заказа и читается статус?" \
+  --schema MYSCHEMA \
+  --chunk-type method_summary \
+  --limit 5
+```
+
+Команда `search-rag`:
+
+1. строит embedding для текстового запроса
+2. вызывает `/collections/<name>/points/search`
+3. выводит top results со `score`, `chunk_type`, `title`, `chunk_id`
+
+Фильтры `--schema`, `--object`, `--subprogram`, `--chunk-type` опциональны и
+превращаются в metadata filter Qdrant.
+
 ## License
 
 Проект распространяется под лицензией Apache License 2.0. Подробности в файлах `LICENSE` и `NOTICE`.

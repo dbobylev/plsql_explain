@@ -242,6 +242,85 @@ def cmd_build_rag(args: argparse.Namespace) -> None:
     run(schema=args.schema, object_name=args.object, subprogram=args.subprogram)
 
 
+def cmd_index_rag(args: argparse.Namespace) -> None:
+    ensure_logging_configured(getattr(args, "log_level", None))
+    if args.subprogram and not args.object:
+        raise ValueError("--subprogram requires --object")
+
+    from dotenv import load_dotenv
+    load_dotenv()
+    from rag.indexer import run_index
+
+    _logger.info(
+        "Индексация RAG-документов в Qdrant: collection=%s%s%s%s",
+        args.collection,
+        f", schema={args.schema}" if args.schema else "",
+        f", object={args.object}" if args.object else "",
+        f", subprogram={args.subprogram}" if args.subprogram else "",
+    )
+    uploaded = run_index(
+        collection=args.collection,
+        schema=args.schema,
+        object_name=args.object,
+        subprogram=args.subprogram,
+        chunk_types=args.chunk_type,
+        batch_size=args.batch_size,
+        vector_size=args.vector_size,
+        distance=args.distance,
+    )
+    _logger.info("Индексация RAG завершена: collection=%s, загружено=%d.", args.collection, uploaded)
+
+
+def cmd_search_rag(args: argparse.Namespace) -> None:
+    ensure_logging_configured(getattr(args, "log_level", None))
+    if args.subprogram and not args.object:
+        raise ValueError("--subprogram requires --object")
+
+    from dotenv import load_dotenv
+    load_dotenv()
+    from rag.indexer import run_search
+
+    _logger.info(
+        "Поиск по RAG в Qdrant: collection=%s, limit=%d%s%s%s",
+        args.collection,
+        args.limit,
+        f", schema={args.schema}" if args.schema else "",
+        f", object={args.object}" if args.object else "",
+        f", subprogram={args.subprogram}" if args.subprogram else "",
+    )
+    hits = run_search(
+        query=args.query,
+        collection=args.collection,
+        limit=args.limit,
+        schema=args.schema,
+        object_name=args.object,
+        subprogram=args.subprogram,
+        chunk_types=args.chunk_type,
+    )
+    if not hits:
+        _logger.info("Совпадений не найдено.")
+        return
+
+    for idx, hit in enumerate(hits, start=1):
+        payload = hit.get("payload") or {}
+        _logger.info(
+            "[%d] score=%.6f chunk_type=%s title=%s chunk_id=%s",
+            idx,
+            hit.get("score", 0.0),
+            payload.get("chunk_type", ""),
+            payload.get("title", ""),
+            payload.get("chunk_id", ""),
+        )
+        _logger.info(
+            "    schema=%s object=%s subprogram=%s",
+            payload.get("schema_name", ""),
+            payload.get("object_name", ""),
+            payload.get("subprogram", ""),
+        )
+        if payload.get("summary_text"):
+            _logger.info("    summary=%s", payload["summary_text"])
+
+
 def cmd_debug(args: argparse.Namespace) -> None:
     ensure_logging_configured(getattr(args, "log_level", None))
     from dotenv import load_dotenv
@@ -336,6 +415,68 @@ def build_parser() -> argparse.ArgumentParser:
         help="Имя подпрограммы внутри пакета (только вместе с --object)",
     )
     rag_parser.set_defaults(func=cmd_build_rag)
+
+    index_rag_parser = subparsers.add_parser(
+        "index-rag",
+        parents=[common_parser],
+        help="Загрузить rag_document в Qdrant через HTTP API",
+    )
+    index_rag_parser.add_argument("--collection", required=True, help="Имя Qdrant collection")
+    index_rag_parser.add_argument("--schema", default=None, help="Имя схемы Oracle (опционально)")
+    index_rag_parser.add_argument("--object", default=None, help="Имя конкретного объекта (опционально)")
+    index_rag_parser.add_argument(
+        "--subprogram",
+        default=None,
+        help="Имя подпрограммы внутри пакета (только вместе с --object)",
+    )
+    index_rag_parser.add_argument(
+        "--chunk-type",
+        action="append",
+        choices=["method_summary", "method_step", "table_doc"],
+        help="Ограничить индексацию только указанными типами chunk'ов; можно повторять",
+    )
+    index_rag_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=16,
+        help="Размер batch для запросов embeddings и upsert в Qdrant",
+    )
+    index_rag_parser.add_argument(
+        "--vector-size",
+        type=int,
+        default=None,
+        help="Размерность вектора; нужна для автоматического создания новой collection",
+    )
+    index_rag_parser.add_argument(
+        "--distance",
+        choices=["Cosine", "Dot", "Euclid"],
+        default="Cosine",
+        help="Distance metric для новой collection",
+    )
+    index_rag_parser.set_defaults(func=cmd_index_rag)
+
+    search_rag_parser = subparsers.add_parser(
+        "search-rag",
+        parents=[common_parser],
+        help="Сделать vector search в Qdrant по запросу",
+    )
+    search_rag_parser.add_argument("--collection", required=True, help="Имя Qdrant collection")
+    search_rag_parser.add_argument("--query", required=True, help="Текст запроса для embedding и поиска")
+    search_rag_parser.add_argument("--limit", type=int, default=5, help="Максимум результатов")
+    search_rag_parser.add_argument("--schema", default=None, help="Фильтр по схеме Oracle")
+    search_rag_parser.add_argument("--object", default=None, help="Фильтр по имени объекта")
+    search_rag_parser.add_argument(
+        "--subprogram",
+        default=None,
+        help="Фильтр по подпрограмме внутри пакета (только вместе с --object)",
+    )
+    search_rag_parser.add_argument(
+        "--chunk-type",
+        action="append",
+        choices=["method_summary", "method_step", "table_doc"],
+        help="Фильтр по типу chunk'а; можно повторять",
+    )
+    search_rag_parser.set_defaults(func=cmd_search_rag)
 
     summarize_parser = subparsers.add_parser(
         "summarize",

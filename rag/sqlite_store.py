@@ -172,3 +172,55 @@ def load_table_columns(
         """,
         (schema_name.upper(), table_name.upper()),
     ).fetchall()
+
+
+def list_documents(
+    conn: sqlite3.Connection,
+    schema: Optional[str] = None,
+    object_name: Optional[str] = None,
+    subprogram: Optional[str] = None,
+    chunk_types: Optional[list[str]] = None,
+    limit: Optional[int] = None,
+) -> list[sqlite3.Row]:
+    query = """
+        SELECT chunk_id, source_kind, chunk_type, schema_name, object_name, object_type,
+               subprogram, title, summary_text, content_text, code_text, parent_chunk_id,
+               node_id, run_id, start_line, end_line, source_hash, prompt_version,
+               metadata_json, refreshed_at
+        FROM rag_document
+        WHERE 1 = 1
+    """
+    params: list[object] = []
+
+    if schema:
+        query += " AND schema_name = ?"
+        params.append(schema.upper())
+    if object_name:
+        query += " AND object_name = ?"
+        params.append(object_name.upper())
+    if subprogram is not None:
+        query += " AND subprogram = ?"
+        params.append(subprogram.upper())
+    if chunk_types:
+        placeholders = ", ".join("?" for _ in chunk_types)
+        query += f" AND chunk_type IN ({placeholders})"
+        params.extend(chunk_types)
+
+    query += """
+        ORDER BY schema_name,
+                 object_name,
+                 object_type,
+                 subprogram,
+                 CASE chunk_type
+                     WHEN 'method_summary' THEN 0
+                     WHEN 'method_step' THEN 1
+                     WHEN 'table_doc' THEN 2
+                     ELSE 3
+                 END,
+                 chunk_id
+    """
+    if limit is not None:
+        query += " LIMIT ?"
+        params.append(limit)
+
+    return conn.execute(query, params).fetchall()
