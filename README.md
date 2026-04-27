@@ -218,6 +218,36 @@ presentation-friendly иерархической таблицей для про�
 | `--force` | Игнорировать кэш описаний узлов и заново обратиться к LLM для всего дерева |
 | `--subprogram NAME` | Анализировать конкретную процедуру/функцию внутри пакета |
 
+### Шаг 5 — Подготовить документы для RAG-индексации
+
+После того как `summarize` сохранил дерево `node_description`, можно собрать
+нормализованные документы для последующей индексации в локальную таблицу
+`rag_document`.
+
+```bash
+# Экспортировать все latest completed summarize-runs по схеме
+python main.py build-rag --schema MYSCHEMA
+
+# Экспортировать только один объект
+python main.py build-rag --schema MYSCHEMA --object PKG_ORDERS
+
+# Экспортировать один конкретный метод
+python main.py build-rag --schema MYSCHEMA --object PKG_ORDERS --subprogram CALCULATE_TOTAL
+```
+
+В `rag_document` сохраняются три типа документов:
+
+1. `method_summary` — корневое описание метода
+2. `method_step` — отдельные шаги/узлы дерева (`SQL`, `CALL`, `IF`, `LOOP` и т.д.)
+3. `table_doc` — описание таблиц и колонок, найденных через `table_access`
+
+Для каждого документа сохраняются:
+
+1. `content_text` — текст для embedding/vector index
+2. `summary_text` — краткое смысловое описание
+3. `code_text` — исходный PL/SQL-фрагмент для точной подстановки в prompt
+4. `metadata_json` — связи: таблицы, вызовы, дочерние chunk'и, словарные константы
+
 #### Анализ по substatement'ам
 
 Суммаризатор работает по дереву операторов `substatement` и строит описание снизу вверх:
@@ -253,6 +283,64 @@ presentation-friendly иерархической таблицей для про�
 При суммаризации проект ищет в текущем фрагменте вызовы вида `c.get('CONST_NAME')`,
 поднимает для них значения из `dict_constant` и добавляет в prompt отдельный блок
 `Константы словаря`.
+
+### Шаг 6 — Загрузить RAG-документы в Qdrant
+
+После того как `build-rag` заполнил таблицу `rag_document`, документы можно
+загрузить в Qdrant через HTTP API, без `qdrantclient`.
+
+Добавьте в `.env`:
+
+1. `EMBEDDING_BASE_URL` — OpenAI-compatible endpoint для embeddings
+2. `EMBEDDING_API_KEY` — ключ для embeddings endpoint
+3. `EMBEDDING_MODEL` — имя embedding-модели
+4. `QDRANT_URL` — базовый URL Qdrant
+5. `QDRANT_API_KEY` — ключ Qdrant, если требуется
+
+Примеры:
+
+```bash
+# Загрузить все документы по схеме в указанную collection.
+# Если collection не существует, она будет создана с заданной размерностью.
+python main.py index-rag --collection plsql_rag --schema MYSCHEMA --vector-size 1536
+
+# Загрузить только method_summary и method_step для одного метода
+python main.py index-rag \
+  --collection plsql_rag \
+  --schema MYSCHEMA \
+  --object PKG_ORDERS \
+  --subprogram CALCULATE_TOTAL \
+  --chunk-type method_summary \
+  --chunk-type method_step \
+  --vector-size 1536
+```
+
+`index-rag` берёт текст для embedding из `rag_document.content_text`, а в payload
+Qdrant кладёт `chunk_id`, `chunk_type`, `schema_name`, `object_name`,
+`subprogram`, `title`, `summary_text` и технические metadata для обратной
+связки с SQLite.
+
+### Шаг 7 — Проверить поиск по Qdrant
+
+После загрузки можно сделать тестовый vector search:
+
+```bash
+python main.py search-rag \
+  --collection plsql_rag \
+  --query "Где рассчитывается сумма заказа и читается статус?" \
+  --schema MYSCHEMA \
+  --chunk-type method_summary \
+  --limit 5
+```
+
+Команда `search-rag`:
+
+1. строит embedding для текстового запроса
+2. вызывает `/collections/<name>/points/search`
+3. выводит top results со `score`, `chunk_type`, `title`, `chunk_id`
+
+Фильтры `--schema`, `--object`, `--subprogram`, `--chunk-type` опциональны и
+превращаются в metadata filter Qdrant.
 
 ## License
 
@@ -292,6 +380,7 @@ Oracle DBA_SOURCE
 | `subprogram` | Процедуры/функции внутри пакетов (имя, тип, исходный код) |
 | `substatement` | Дерево операторов внутри подпрограмм (IF, LOOP, SQL, EXCEPTION и т.д.) |
 | `node_description` | Дерево описаний метода: узлы, иерархия, хэши, тексты описаний LLM |
+| `rag_document` | Нормализованные документы для RAG-индексации: method summary, method steps, table docs |
 
 ### Иерархическая суммаризация
 
@@ -316,6 +405,7 @@ Oracle DBA_SOURCE
 | `dictconst/` | Загрузка значений констант из `ais.dicti` в SQLite и подмешивание их в LLM-анализ |
 | `traversal/` | Обход графа в глубину, построение дерева зависимостей |
 | `summarizer/` | LLM-описание дерева substatement: короткие запросы для leaf-узлов, агрегация снизу вверх, сохранение дерева в SQLite |
+| `rag/` | Подготовка нормализованных документов для RAG-индексации из `node_description`, `call_edge` и `table_metadata` |
 
 ## Ограничения
 

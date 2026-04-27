@@ -160,3 +160,28 @@ CREATE TABLE IF NOT EXISTS node_description (
     described_at    TEXT NOT NULL,
     UNIQUE(run_id, node_id)
 );
+
+CREATE TABLE IF NOT EXISTS rag_document (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    chunk_id        TEXT NOT NULL,
+    source_kind     TEXT NOT NULL,
+    chunk_type      TEXT NOT NULL,
+    schema_name     TEXT NOT NULL,
+    object_name     TEXT NOT NULL,
+    object_type     TEXT NOT NULL DEFAULT '',
+    subprogram      TEXT NOT NULL DEFAULT '',
+    title           TEXT NOT NULL DEFAULT '',
+    summary_text    TEXT NOT NULL DEFAULT '',
+    content_text    TEXT NOT NULL DEFAULT '',
+    code_text       TEXT NOT NULL DEFAULT '',
+    parent_chunk_id TEXT,
+    node_id         TEXT NOT NULL DEFAULT '',
+    run_id          TEXT NOT NULL DEFAULT '',
+    start_line      INTEGER NOT NULL DEFAULT 0,
+    end_line        INTEGER NOT NULL DEFAULT 0,
+    source_hash     TEXT NOT NULL DEFAULT '',
+    prompt_version  TEXT NOT NULL DEFAULT '',
+    metadata_json   TEXT NOT NULL DEFAULT '{}',
+    refreshed_at    TEXT NOT NULL,
+    UNIQUE(chunk_id)
+);

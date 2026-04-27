@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from main import build_parser, build_summary_path, cmd_summarize
+from main import build_parser, build_summary_path, cmd_index_rag, cmd_search_rag, cmd_summarize
 
 
 def test_fetch_parses_schema():
@@ -108,6 +108,83 @@ def test_sync_dict_const_parses_args():
     assert args.object == "PKG_A"
 
 
+def test_build_rag_parses_schema_and_optional_object():
+    args = build_parser().parse_args(["build-rag", "--schema", "S", "--object", "PKG_A"])
+    assert args.schema == "S"
+    assert args.object == "PKG_A"
+    assert args.subprogram is None
+
+
+def test_build_rag_parses_subprogram():
+    args = build_parser().parse_args(
+        ["build-rag", "--schema", "S", "--object", "PKG_A", "--subprogram", "PROC_X"]
+    )
+    assert args.subprogram == "PROC_X"
+
+
+def test_index_rag_parses_args():
+    args = build_parser().parse_args(
+        [
+            "index-rag",
+            "--collection",
+            "plsql_rag",
+            "--schema",
+            "S",
+            "--object",
+            "PKG_A",
+            "--subprogram",
+            "PROC_X",
+            "--chunk-type",
+            "method_summary",
+            "--chunk-type",
+            "method_step",
+            "--batch-size",
+            "8",
+            "--vector-size",
+            "1536",
+            "--distance",
+            "Cosine",
+        ]
+    )
+    assert args.collection == "plsql_rag"
+    assert args.schema == "S"
+    assert args.object == "PKG_A"
+    assert args.subprogram == "PROC_X"
+    assert args.chunk_type == ["method_summary", "method_step"]
+    assert args.batch_size == 8
+    assert args.vector_size == 1536
+    assert args.distance == "Cosine"
+
+
+def test_search_rag_parses_args():
+    args = build_parser().parse_args(
+        [
+            "search-rag",
+            "--collection",
+            "plsql_rag",
+            "--query",
+            "find order status",
+            "--limit",
+            "7",
+            "--schema",
+            "S",
+            "--object",
+            "PKG_A",
+            "--subprogram",
+            "PROC_X",
+            "--chunk-type",
+            "method_summary",
+        ]
+    )
+    assert args.collection == "plsql_rag"
+    assert args.query == "find order status"
+    assert args.limit == 7
+    assert args.schema == "S"
+    assert args.object == "PKG_A"
+    assert args.subprogram == "PROC_X"
+    assert args.chunk_type == ["method_summary"]
+
+
 def test_summarize_parses_required_args():
     args = build_parser().parse_args(["summarize", "--schema", "MYSCHEMA", "--object", "PKG_A"])
     assert args.schema == "MYSCHEMA"
@@ -177,6 +254,81 @@ def test_cmd_summarize_writes_summary_to_markdown_file(tmp_path, monkeypatch):
     assert "итоговое описание" in content
     assert "<html>" in compact_html_content
     assert "итоговое описание" in compact_html_content
+
+
+def test_cmd_index_rag_calls_indexer() -> None:
+    args = build_parser().parse_args(
+        [
+            "index-rag",
+            "--collection",
+            "plsql_rag",
+            "--schema",
+            "S",
+            "--object",
+            "PKG_A",
+            "--subprogram",
+            "PROC_X",
+            "--chunk-type",
+            "method_summary",
+            "--batch-size",
+            "4",
+            "--vector-size",
+            "1536",
+        ]
+    )
+
+    with patch("main.ensure_logging_configured"), \
+         patch("dotenv.load_dotenv"), \
+         patch("rag.indexer.run_index", return_value=3) as run_index:
+        cmd_index_rag(args)
+
+    run_index.assert_called_once_with(
+        collection="plsql_rag",
+        schema="S",
+        object_name="PKG_A",
+        subprogram="PROC_X",
+        chunk_types=["method_summary"],
+        batch_size=4,
+        vector_size=1536,
+        distance="Cosine",
+    )
+
+
+def test_cmd_search_rag_calls_searcher() -> None:
+    args = build_parser().parse_args(
+        [
+            "search-rag",
+            "--collection",
+            "plsql_rag",
+            "--query",
+            "find order status",
+            "--limit",
+            "3",
+            "--schema",
+            "S",
+            "--object",
+            "PKG_A",
+            "--subprogram",
+            "PROC_X",
+            "--chunk-type",
+            "method_summary",
+        ]
+    )
+
+    with patch("main.ensure_logging_configured"), \
+         patch("dotenv.load_dotenv"), \
+         patch("rag.indexer.run_search", return_value=[]) as run_search:
+        cmd_search_rag(args)
+
+    run_search.assert_called_once_with(
+        query="find order status",
+        collection="plsql_rag",
+        limit=3,
+        schema="S",
+        object_name="PKG_A",
+        subprogram="PROC_X",
+        chunk_types=["method_summary"],
+    )
 
 
 def test_debug_defaults():
